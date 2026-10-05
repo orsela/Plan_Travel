@@ -1,5 +1,18 @@
 # Plan_Travel – CHANGELOG
 
+## 3.0.0-alpha.3 — S2 (dev, not deployed)
+
+### F03 · Super-admin invites a manager — 2026-10-05
+- `app/index.html`: flag `ADMIN_FEATURE='on'|'off'`; "החשבון שלי" in עוד (link email via `auth.updateUser`, linked email,
+  "ניהול מערכת" for platform admins); `#admin` screen (filter, cards, revoked toggle, offline notice, no trip chrome);
+  invite sheet + actions sheet (resend / revoke with confirm); `#invite=` landing before trip boot (token never stored or logged).
+  `off` = alpha.2 behaviour. Protected functions byte-identical; 3 existing lines changed (title, PT_VERSION, APP_VERSION).
+- `supabase/functions/invite-manager`: create / resend / revoke / check, Gmail SMTP 465 (denomailer 1.6.0), Deno tests.
+- DB: `0008_f03` (invite tracking columns, one active invite per email, `admin_trip_summary()` RPC);
+  `0009_qa_f03_harness` (`qa.f03_run()`, 49 scenarios). Not applied yet.
+- Dev self-checks (local only): qa.f01 109/109, qa.f02 37/37, qa.f03 49/49 on local Postgres 16; Deno 16/16;
+  F02 suite 39/39 (+1 skip) in both flag states; F03 smoke 91/91. See docs/F03_dev_notes.md.
+
 ## 3.0.0-alpha.2 — S1
 
 ### F02 · The app on the new infrastructure — 2026-10-05

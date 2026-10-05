@@ -20,7 +20,8 @@ if('serviceWorker' in navigator){
 </script>
 <!-- CHANGE 2026-09-30 VISITS-01: title version bumped to v2.9.0 (it had been left at v2.4.8 since that release). CHANGE 2026-09-30 TRAVEL-CHAT-01: bumped to v2.10.0. CHANGE 2026-09-30 TRAVEL-CHAT-02: bumped to v2.10.1. CHANGE 2026-09-30 MAPMODE-FIX-01: bumped to v2.10.2. CHANGE 2026-09-30 CHECKIN-01: bumped to v2.11.0. CHANGE 2026-09-30 WAYPOINT-FIX-01: bumped to v2.11.1. CHANGE 2026-09-30 PERF-01/SYNC-MERGE-01: bumped to v2.11.2. CHANGE 2026-09-30 VAULT-OFFLINE-01/VAULT-DRIVE-01/APP-OFFLINE-01: bumped to v2.12.0. CHANGE 2026-09-30 QUICK-EXP-01/HOME-MIN-01: bumped to v2.13.0. CHANGE 2026-10-01 UI-KIT-01/FLIGHT-CARD-01: bumped to v2.14.0. CHANGE 2026-10-02 DAY-PICKER-01/EDIT-MENU-01: bumped to v2.15.0. CHANGE 2026-10-02 HOME-EDIT-01: bumped to v2.15.1. CHANGE 2026-10-04 DAY-TODAY-01: bumped to v2.15.2. -->
 <!-- CHANGE 2026-10-04 F02-VER-02: title version v2.15.2 -> v3.0.0-alpha.2 (Plan_Travel F02: same app on the plan-travel backend). -->
-<title>Vietnam Travel Planner — ויאטנם 2026 · v3.0.0-alpha.2 (Plan_Travel)</title>
+<!-- CHANGE 2026-10-05 F03-VER-02: title version v3.0.0-alpha.2 -> v3.0.0-alpha.3 (Plan_Travel F03: super-admin invites a manager). -->
+<title>Vietnam Travel Planner — ויאטנם 2026 · v3.0.0-alpha.3 (Plan_Travel)</title>
 <!-- CHANGE 2026-09-30 PERF-01 (v2.11.2): xlsx.full.min.js (~900KB) is no longer loaded here on every start; ensureXLSX() in the main script loads it only when Excel backup/import is used. -->
 <script>
 /* CHANGE 2026-10-04 F02-FLAG-01: F02 flags — top-level consts in their own classic script, placed before the F02 gate
@@ -35,6 +36,639 @@ if('serviceWorker' in navigator){
                     plan-travel's chat-assistant function (not deployed in F02). */
 const STORAGE_BACKEND='cloud';
 const CHAT_FEATURE='soon';
+/* CHANGE 2026-10-05 F03-FLAG-01: new flag (no alpha.2 equivalent). 'on' = "החשבון שלי" rows in עוד, the #admin screen for
+   platform admins and the #invite= landing page (docs/F03_spec.md). 'off' = exactly the 3.0.0-alpha.2 behaviour: the F03 block
+   below returns on its first line, so no rows, no admin screen, and #invite= is ignored (normal boot). */
+const ADMIN_FEATURE='on';
+</script>
+<!-- CHANGE 2026-10-05 F03-UI-01: NEW block (no 3.0.0-alpha.2 equivalent) — F03 "super-admin invites a manager"
+     (docs/F03_spec.md). Style + one classic script, placed after the flags script and BEFORE the F02 gate block so it
+     can read and clear an `#invite=<token>` / auth-callback hash before anything else sees it. With ADMIN_FEATURE='off'
+     (or STORAGE_BACKEND!=='cloud') the script returns on its first line and the styles match nothing: alpha.2 behaviour.
+     - F03-LAND-01: interim invite landing page (#ptInvite), rendered instead of trip boot when the hash is #invite=…
+     - F03-ACCT-01: "החשבון שלי" section inserted at the top of the existing #more panel (link email / linked email /
+       ניהול מערכת for platform admins)
+     - F03-LINK-01: link-email bottom sheet (supabase.auth.updateUser)
+     - F03-ADMIN-01: #admin screen (full screen, no trip chrome) with filter, cards, revoked toggle, offline notice
+     - F03-INV-01: invite sheet · F03-ACT-01: invite actions sheet (resend / revoke with confirm)
+     All network calls go through the gate's client (bridge F03-GATE-01 in the gate block below). -->
+<style>
+/* CHANGE 2026-10-05 F03-UI-01: F03 styles. Only new pt-* classes / ids; reuses the UI-kit variables. Nothing existing is overridden. */
+html.pt-landing body>*:not(#ptInvite){display:none!important}
+html.pt-admin-open body>*:not(#admin):not(#ptSheetLayer):not(#ptToast){display:none!important}
+#ptInvite,#admin{position:fixed;inset:0;z-index:1000;overflow-y:auto;overflow-x:hidden;background:var(--bg);color:var(--text);-webkit-overflow-scrolling:touch}
+#ptInvite{padding:28px 18px calc(28px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:16px;align-items:stretch}
+#ptInvite>*{width:100%;max-width:420px;margin-inline:auto}
+.pt-brand{text-align:center;font-size:18px;font-weight:900}
+.pt-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:0 2px 8px #0000000a}
+.pt-center{text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+.pt-center h1{margin:0;font-size:20px}
+.pt-center p{margin:0;font-size:14px;line-height:1.6;color:#3a443d}
+.pt-center p.pt-dim{font-size:13px;color:var(--muted)}
+.pt-ring{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f1f0ea}
+.pt-ring.ok{background:#eaf7ef}
+.pt-note-amber{background:#fef3e2;color:#6b3a02;border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.5}
+.pt-steps{padding:12px 18px}
+.pt-steps b{font-size:13.5px;display:block;padding-bottom:6px}
+.pt-step{display:flex;gap:10px;align-items:center;font-size:13px;padding:8px 0;border-top:1px solid #efeee8}
+.pt-num{width:24px;height:24px;border-radius:50%;background:#f1f0ea;color:#4b524c;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.pt-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;border:0;border-radius:14px;background:var(--primary);color:#fff;font:inherit;font-size:15px;font-weight:800;cursor:pointer;touch-action:manipulation;text-decoration:none}
+.pt-btn[disabled]{background:#a9c9bb;color:#fff;cursor:default}
+.pt-btn.pt-soon[disabled]{background:#e4e6df;color:#5f6861}
+.pt-btn.pt-out{background:#fff;color:var(--text);border:1px solid var(--border)}
+.pt-btn.pt-out[disabled]{color:#9aa19b;background:#fff}
+.pt-btn.pt-sm{min-height:44px;font-size:13px;border-radius:12px;width:auto;padding:0 14px}
+.pt-btn.pt-danger{color:#9b1c1c}
+.pt-btn.pt-red{background:#b42318;color:#fff}
+.pt-spin{width:28px;height:28px;border-radius:50%;border:3px solid #e4e6df;border-top-color:var(--primary);animation:pt-spin 1s linear infinite}
+@keyframes pt-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.pt-spin{animation:none}}
+/* "החשבון שלי" in #more */
+.pt-sec{font-size:12px;font-weight:800;color:var(--muted);margin:4px 4px 6px}
+.pt-acct-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2px 14px;margin-bottom:12px}
+.pt-li{display:flex;align-items:center;gap:12px;width:100%;text-align:right;background:none;border:0;border-top:1px solid #efeee8;padding:10px 0;min-height:58px;color:var(--text);font:inherit;cursor:pointer}
+.pt-li:first-child{border-top:0}
+.pt-li[hidden]{display:none}
+div.pt-li{cursor:default}
+.pt-ic{width:36px;height:36px;border-radius:10px;background:#f5f2ea;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.pt-li .pt-main{flex:1;min-width:0}
+.pt-li b{font-size:14px;display:block}
+.pt-sub{display:block;font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+.pt-ltr{direction:ltr;unicode-bidi:isolate;text-align:right}
+.pt-chev{color:var(--muted)}
+.pt-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:800;border-radius:999px;padding:3px 9px;white-space:nowrap;flex-shrink:0}
+.pt-badge.ok{background:#eaf7ef;color:#146c43}
+.pt-badge.wait{background:#fef3e2;color:#8a4a03}
+.pt-badge.exp{background:#fdecec;color:#9b1c1c}
+.pt-badge.done{background:#f1f0ea;color:#4b524c}
+.pt-badge.adm{background:#eef0fb;color:#3730a3}
+/* admin screen */
+#admin .pt-adm-head{display:flex;align-items:center;gap:10px;padding:12px 14px 8px;max-width:620px;margin:0 auto}
+#admin .pt-adm-head h1{margin:0;font-size:17px}
+#admin .pt-adm-head .pt-sub{font-size:11.5px}
+#admin .pt-adm-body{padding:0 14px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;max-width:620px;margin:0 auto}
+.pt-iconbtn{width:44px;height:44px;min-width:44px;border-radius:12px;border:1px solid var(--border);background:#fff;color:#3a443d;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;font:inherit;font-size:18px;padding:0}
+.pt-iconbtn.pt-bare{border:0;background:none}
+.pt-iconbtn[disabled]{opacity:.45;cursor:default}
+.pt-seg{display:flex;gap:4px;background:#fff;border:1px solid var(--border);border-radius:999px;padding:3px}
+.pt-seg button{flex:1;min-width:0;min-height:44px;border:0;border-radius:999px;background:none;color:#4b524c;font:inherit;font-size:12.5px;font-weight:800;white-space:nowrap;cursor:pointer;padding:0 4px}
+.pt-seg button[aria-pressed="true"]{background:var(--primary);color:#fff}
+.pt-icard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:12px 14px}
+.pt-icard.pt-dashed{border-style:dashed}
+.pt-row{display:flex;gap:12px;align-items:flex-start}
+.pt-row .pt-main{flex:1;min-width:0}
+.pt-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pt-nm{font-size:15px;font-weight:800;overflow-wrap:anywhere}
+.pt-l1{font-size:12.5px;color:#3a443d;margin-top:3px;overflow-wrap:anywhere}
+.pt-l2{font-size:12px;color:#5f6861;overflow-wrap:anywhere}
+.pt-flag{font-size:22px;line-height:1.2;min-width:30px;text-align:center;flex-shrink:0;letter-spacing:-2px}
+.pt-q{width:30px;height:30px;border-radius:50%;background:#f1f0ea;color:#5f6861;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.pt-actions{display:flex;gap:8px;margin-top:10px}
+.pt-actions .pt-btn{flex:1}
+.pt-linkbtn{border:0;background:none;color:var(--primary);font:inherit;font-size:12.5px;font-weight:700;min-height:44px;cursor:pointer}
+.pt-foot{display:flex;gap:8px;align-items:center;font-size:11.5px;color:#5f6861;padding:0 4px}
+.pt-offline{background:#fef3e2;color:#6b3a02;border-radius:12px;padding:10px 12px;font-size:12.5px}
+.pt-empty{text-align:center;color:var(--muted);font-size:13px;padding:18px 8px}
+/* bottom sheets */
+#ptSheetLayer{position:fixed;inset:0;z-index:1100;display:flex;align-items:flex-end;justify-content:center}
+#ptSheetLayer[hidden]{display:none}
+#ptSheetLayer .pt-scrim{position:absolute;inset:0;background:#0f172a66}
+#ptSheetLayer .pt-sheet{position:relative;width:100%;max-width:560px;max-height:min(90vh,760px);overflow-y:auto;overflow-x:hidden;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -8px 28px #00000020;padding:10px 16px calc(26px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:14px;color:var(--text)}
+.pt-handle{width:38px;height:4px;border-radius:99px;background:var(--border);margin:0 auto;flex-shrink:0}
+.pt-shead{display:flex;align-items:flex-start;gap:12px}
+.pt-shead .pt-main{flex:1;min-width:0}
+.pt-shead h2{margin:0;font-size:17px}
+.pt-shead p{margin:3px 0 0;font-size:12.5px;color:var(--muted)}
+.pt-lbl{display:block;font-size:12.5px;font-weight:700;color:#3a443d;margin:0 0 6px}
+.pt-in{width:100%;min-height:46px;padding:11px 14px;border:1px solid var(--border);border-radius:12px;background:#fff;color:var(--text);font:inherit;font-size:15px;box-sizing:border-box}
+.pt-in.pt-warn{border-color:#d97706;box-shadow:0 0 0 3px #fef3e2}
+.pt-hint{font-size:11.5px;color:var(--muted);margin:6px 2px 0}
+.pt-err{font-size:12.5px;color:#9b1c1c;margin:6px 2px 0}
+.pt-err:empty{display:none}
+.pt-small{margin:-6px 0 0;font-size:11.5px;color:var(--muted);text-align:center}
+.pt-explain{display:flex;flex-direction:column;gap:8px;background:var(--bg);border-radius:14px;padding:12px}
+.pt-explain .pt-step{border:0;padding:0;align-items:flex-start;font-size:12.5px;color:#3a443d}
+.pt-explain .pt-num{width:22px;height:22px;font-size:11.5px;background:#edf8f3;color:#0b5841}
+.pt-exists{background:#fffaf1;border:1px solid #f5d6a8;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.pt-exists span{font-size:12.5px;color:#6b3a02}
+.pt-kv{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:7px 0;border-top:1px solid #efeee8}
+.pt-kv span:first-child{color:#5f6861}
+.pt-kv span:last-child{font-weight:700}
+.pt-act{display:flex;align-items:center;gap:12px;width:100%;text-align:right;background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px 14px;min-height:60px;color:var(--text);font:inherit;cursor:pointer}
+.pt-act[disabled]{opacity:.5;cursor:default}
+.pt-act .pt-ic{background:#edf8f3}
+.pt-act.pt-act-danger .pt-ic{background:#fff4f2}
+.pt-act.pt-act-danger b{color:#b42318}
+.pt-act b{font-size:14px}
+.pt-ok-msg{background:#eaf7ef;color:#146c43;border-radius:14px;padding:14px;font-size:14px;line-height:1.6;text-align:center}
+#ptToast{position:fixed;left:50%;top:18px;transform:translateX(-50%) translateY(-160%);background:#17211b;color:#fff;border-radius:999px;padding:9px 16px;font-size:.82rem;font-weight:700;z-index:1200;box-shadow:0 6px 16px #00000030;transition:transform .25s;max-width:92vw;text-align:center;pointer-events:none}
+#ptToast.show{transform:translateX(-50%) translateY(0)}
+@media (prefers-reduced-motion:reduce){#ptToast{transition:none}}
+</style>
+<script>
+/* CHANGE 2026-10-05 F03-UI-01 (3.0.0-alpha.3): new script (no alpha.2 equivalent). One IIFE; exposes only the frozen,
+   read-only object window.__ptF03 {attach, takeOverBoot, version} used by the gate bridge (F03-GATE-01). The invite
+   token lives only in this closure: never written to storage, never logged, removed from the address bar at once. */
+(function(){
+'use strict';
+if(typeof ADMIN_FEATURE==='undefined'||ADMIN_FEATURE!=='on')return;          /* off: nothing at all (alpha.2) */
+if(typeof STORAGE_BACKEND!=='undefined'&&STORAGE_BACKEND!=='cloud')return;     /* local-only: no account/admin/landing */
+
+const F03_VERSION='3.0.0-alpha.3';
+const TOKEN_RE=/^[A-Za-z0-9_-]{43}$/;
+const EMAIL_RE=/^[^\s@<>()",;:\\[\]]+@[^\s@<>()",;:\\[\]]+\.[^\s@<>()",;:\\[\]]{2,}$/;
+const DAY=86400000;
+const CALL_TIMEOUT_MS=20000, CHECK_TIMEOUT_MS=10000;
+let api=null;                  /* set by the gate: {endpoint,key,client(),uid(),withTimeout,timeoutMs} */
+
+/* ---------------------------------------------------------------------------------------------------------
+   F03-LAND-01 (part 1): read and clear the hash before the gate runs.
+   #invite=<token>        → kept in this closure only, the address bar is cleaned with history.replaceState.
+   #access_token=…/#error… → Supabase Auth redirect after the email-link confirmation (detectSessionInUrl is off in
+                             the gate, so nobody consumes it): cleaned from the address bar; a toast tells the result.
+   --------------------------------------------------------------------------------------------------------- */
+let inviteSeen=false,inviteToken='',authNotice=null;
+function cleanUrl(){try{history.replaceState(history.state,'',location.pathname+location.search)}catch{}}
+try{
+ const h=String(location.hash||'');
+ if(h.indexOf('#invite=')===0){inviteSeen=true;inviteToken=h.slice(8);cleanUrl()}
+ else if(/^#(.*&)?(access_token|error|error_code|error_description|message)=/.test(h)){
+  let p=null;try{p=new URLSearchParams(h.slice(1))}catch{}
+  authNotice=p&&(p.get('error')||p.get('error_code')||p.get('error_description'))?'error':(p&&p.get('access_token')?'linked':'pending');
+  cleanUrl();
+ }
+}catch{}
+
+/* ---------------------------------------------------------------------------------------------------------
+   small helpers
+   --------------------------------------------------------------------------------------------------------- */
+const $=id=>document.getElementById(id);
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+function onReady(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
+function normEmail(v){return String(v||'').trim().toLowerCase()}
+function validEmail(e){return e.length>=6&&e.length<=254&&EMAIL_RE.test(e)}
+function online(){return navigator.onLine!==false}
+function pad(n){return String(n).padStart(2,'0')}
+function dmy(ts){const d=new Date(ts);return isNaN(d)?'':pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear()}
+function dm(ts){const d=new Date(ts);return isNaN(d)?'':pad(d.getDate())+'/'+pad(d.getMonth()+1)}
+function dateParts(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||''));return m?{y:m[1],m:m[2],d:m[3]}:null}
+function tripRange(s,e){
+ const a=dateParts(s),b=dateParts(e);
+ if(a&&b)return a.y===b.y?`${a.d}/${a.m}–${b.d}/${b.m}/${b.y}`:`${a.d}/${a.m}/${a.y}–${b.d}/${b.m}/${b.y}`;
+ if(a)return`מ-${a.d}/${a.m}/${a.y}`;
+ if(b)return`עד ${b.d}/${b.m}/${b.y}`;
+ return'';
+}
+function daysWord(n){return n===1?'יום אחד':n===2?'יומיים':n+' ימים'}
+function sentAgo(ts){
+ const n=Math.floor((Date.now()-new Date(ts).getTime())/DAY);
+ if(!(n>=0))return'נשלחה';if(n===0)return'נשלחה היום';if(n===1)return'נשלחה אתמול';if(n===2)return'נשלחה לפני יומיים';return`נשלחה לפני ${n} ימים`;
+}
+function daysLeft(ts){return Math.max(0,Math.ceil((new Date(ts).getTime()-Date.now())/DAY))}
+function timesWord(n){n=Number(n)||1;return n===1?'פעם אחת':n+' פעמים'}
+function membersWord(n){n=Number(n)||0;return n===1?'חבר אחד':n+' חברים'}
+const COUNTRY_HE={VN:'ויאטנם',TH:'תאילנד',KH:'קמבודיה',LA:'לאוס',JP:'יפן',KR:'דרום קוריאה',CN:'סין',TW:'טאיוואן',SG:'סינגפור',MY:'מלזיה',ID:'אינדונזיה',PH:'הפיליפינים',IN:'הודו',LK:'סרי לנקה',NP:'נפאל',MV:'האיים המלדיביים',AE:'איחוד האמירויות',JO:'ירדן',EG:'מצרים',MA:'מרוקו',TR:'טורקיה',GE:'גאורגיה',CY:'קפריסין',GR:'יוון',IT:'איטליה',ES:'ספרד',PT:'פורטוגל',FR:'צרפת',DE:'גרמניה',AT:'אוסטריה',CH:'שווייץ',NL:'הולנד',BE:'בלגיה',GB:'בריטניה',IE:'אירלנד',IS:'איסלנד',NO:'נורווגיה',SE:'שוודיה',FI:'פינלנד',DK:'דנמרק',PL:'פולין',CZ:'צ׳כיה',HU:'הונגריה',HR:'קרואטיה',SI:'סלובניה',ME:'מונטנגרו',AL:'אלבניה',RO:'רומניה',BG:'בולגריה',MT:'מלטה',US:'ארצות הברית',CA:'קנדה',MX:'מקסיקו',PE:'פרו',AR:'ארגנטינה',BR:'ברזיל',CL:'צ׳ילה',AU:'אוסטרליה',NZ:'ניו זילנד',ZA:'דרום אפריקה',TZ:'טנזניה',IL:'ישראל'};
+function countryName(c){c=String(c||'').toUpperCase();return COUNTRY_HE[c]||c}
+function flag(c){c=String(c||'').toUpperCase();if(!/^[A-Z]{2}$/.test(c))return'';return String.fromCodePoint(0x1F1E6+c.charCodeAt(0)-65,0x1F1E6+c.charCodeAt(1)-65)}
+const ICON={
+ mail:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+ clock:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+ shield:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3730a3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
+ back:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
+ plus:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+ dots:'<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+ lock:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+ check:'<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#146c43" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+ broken:'<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#4b524c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/><path d="M3 3l18 18"/></svg>',
+ wifi:'<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#4b524c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M12 19.5h.01"/><path d="M3 3l18 18"/></svg>',
+ resend:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0f6b4f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>',
+ ban:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b42318" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M5.7 5.7l12.6 12.6"/></svg>',
+ warn:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8a4a03" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>'
+};
+function toast(msg){
+ onReady(()=>{let el=$('ptToast');if(!el){el=document.createElement('div');el.id='ptToast';el.setAttribute('role','status');el.setAttribute('aria-live','polite');document.body.appendChild(el)}
+  el.textContent=msg;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2800)});
+}
+function fetchT(url,opts,ms){
+ const ac=typeof AbortController!=='undefined'?new AbortController():null;
+ const t=setTimeout(()=>{try{ac&&ac.abort()}catch{}},ms);
+ return fetch(url,Object.assign({},opts,ac?{signal:ac.signal}:{})).finally(()=>clearTimeout(t));
+}
+
+/* Fixed error codes of invite-manager → Hebrew (spec §3/§4). */
+const ERR_HE={
+ not_platform_admin:'אין לך הרשאת סופר-אדמין.',
+ invalid_email:'כתובת המייל לא תקינה.',
+ invalid_name:'השם ארוך מדי (עד 80 תווים).',
+ invalid_request:'משהו השתבש. נסו שוב.',
+ invite_not_found:'ההזמנה לא נמצאה. רעננו את הרשימה.',
+ invite_closed:'ההזמנה כבר נוצלה או בוטלה, ואי אפשר לשלוח אותה שוב.',
+ invite_used:'ההזמנה כבר נוצלה להקמת טיול, ואי אפשר לבטל אותה.',
+ email_failed:'שליחת המייל נכשלה ולא נשמר שום שינוי. נסו שוב.',
+ server_error:'משהו השתבש. נסו שוב.',
+ offline:'אין חיבור. נסו שוב כשהרשת תחזור.'
+};
+function errText(code,fallback){return ERR_HE[code]||fallback||ERR_HE.server_error}
+function codeErr(code,data){const e=new Error(code);e.code=code;e.data=data||{};return e}
+
+/* invite-manager call with the session JWT (spec §4). */
+async function invoke(action,payload){
+ if(!online())throw codeErr('offline');
+ const c=api&&api.client();if(!c)throw codeErr('offline');
+ let tok=null;
+ try{const s=await api.withTimeout(c.auth.getSession(),api.timeoutMs);tok=s&&s.data&&s.data.session&&s.data.session.access_token}catch{throw codeErr('offline')}
+ if(!tok)throw codeErr('not_platform_admin');
+ let r;
+ try{r=await fetchT(api.endpoint,{method:'POST',headers:{'Content-Type':'application/json','apikey':api.key,'Authorization':'Bearer '+tok},body:JSON.stringify(Object.assign({action},payload||{}))},CALL_TIMEOUT_MS)}
+ catch{throw codeErr('offline')}
+ let j=null;try{j=await r.json()}catch{}
+ if(!r.ok)throw codeErr((j&&typeof j.error==='string'&&j.error)||'server_error',j);
+ return j||{};
+}
+
+/* ---------------------------------------------------------------------------------------------------------
+   F03-LAND-01 (part 2): the landing page. Valid → artboard F03_Landing. Everything that is not valid (expired,
+   revoked, replaced, used, malformed, random) → one constant markup string (F03_LandingInvalid), so the page is
+   byte-identical whatever the reason. Network error → "אין חיבור. נסו שוב" with a retry button.
+   --------------------------------------------------------------------------------------------------------- */
+const LAND_BRAND='<div class="pt-brand">Plan_Travel</div>';
+const LAND_H1='<h1 '+'id="ptInviteTitle"';   /* one source occurrence of the id (only one landing variant is in the DOM at a time) */
+const LAND_INVALID=LAND_BRAND+'<section class="pt-card pt-center"><div class="pt-ring">'+ICON.broken+'</div>'+LAND_H1+'>הקישור כבר לא בתוקף</h1><p>ייתכן שפג תוקפו, שנשלח במקומו קישור חדש, או שההזמנה בוטלה.</p><p class="pt-dim">בקש/י ממי שהזמין אותך לשלוח את ההזמנה שוב, ופתח/י את הקישור מהמייל האחרון.</p></section>';
+const LAND_LOADING=LAND_BRAND+'<section class="pt-card pt-center" aria-busy="true"><div class="pt-spin" aria-hidden="true"></div>'+LAND_H1+' style="font-size:17px">בודקים את ההזמנה…</h1></section>';
+function landNet(msg){return LAND_BRAND+'<section class="pt-card pt-center"><div class="pt-ring">'+ICON.wifi+'</div>'+LAND_H1+'>'+esc(msg)+'</h1><button type="button" class="pt-btn" id="ptInviteRetry">נסו שוב</button></section>'}
+function landValid(j){
+ const who=esc(j.inviter_name||'מנהל המערכת');
+ const grp=j.draft_name?'לנהל את הקבוצה <b>"'+esc(j.draft_name)+'"</b>':'לנהל קבוצה חדשה';
+ return LAND_BRAND+
+  '<section class="pt-card pt-center"><div class="pt-ring ok">'+ICON.check+'</div>'+LAND_H1+'>ההזמנה שלך אומתה</h1>'+
+  '<p>'+who+' הזמין אותך '+grp+'.</p>'+
+  '<div class="pt-note-amber">אשף הקמת הטיול עוד לא זמין. הקישור נשאר בתוקף עד <b>'+esc(dmy(j.expires_at))+'</b>, ותוכל/י לחזור אליו מהמייל.</div></section>'+
+  '<section class="pt-card pt-steps"><b>מה יקרה כשהאשף ייפתח</b>'+
+  '<div class="pt-step"><span class="pt-num">1</span><span>התחברות עם המייל הזה</span></div>'+
+  '<div class="pt-step"><span class="pt-num">2</span><span>שם הטיול, תאריכים ושפה</span></div>'+
+  '<div class="pt-step"><span class="pt-num">3</span><span>מדינות ומטבעות</span></div>'+
+  '<div class="pt-step"><span class="pt-num">4</span><span>קישור הצטרפות לשליחה בווטסאפ</span></div></section>'+
+  '<button class="pt-btn pt-soon" type="button" disabled>התחלת הקמה · בקרוב</button>';
+}
+function landRender(html){
+ const el=$('ptInvite');if(!el)return;el.innerHTML=html;
+ const r=$('ptInviteRetry');if(r)r.onclick=landCheck;
+}
+async function landCheck(){
+ landRender(LAND_LOADING);
+ if(!TOKEN_RE.test(inviteToken)){landRender(LAND_INVALID);return}     /* malformed: same page, no request */
+ if(!online()){landRender(landNet('אין חיבור. נסו שוב'));return}
+ let r;
+ try{r=await fetchT(api.endpoint,{method:'POST',headers:{'Content-Type':'application/json','apikey':api.key},body:JSON.stringify({action:'check',token:inviteToken})},CHECK_TIMEOUT_MS)}
+ catch{landRender(landNet('אין חיבור. נסו שוב'));return}
+ let j=null;try{j=await r.json()}catch{}
+ if(!r.ok||!j){landRender(landNet('לא הצלחנו לבדוק את ההזמנה. נסו שוב'));return}
+ landRender(j.valid===true?landValid(j):LAND_INVALID);
+}
+function takeOverBoot(){
+ if(!inviteSeen||!api)return false;
+ onReady(()=>{
+  const de=document.documentElement;de.classList.remove('pt-booting','pt-gate');de.classList.add('pt-landing');
+  let el=$('ptInvite');
+  if(!el){el=document.createElement('main');el.id='ptInvite';el.setAttribute('dir','rtl');el.setAttribute('aria-labelledby','ptInviteTitle');document.body.appendChild(el)}
+  landCheck();
+ });
+ return true;
+}
+
+/* ---------------------------------------------------------------------------------------------------------
+   Bottom sheet (shared by link-email, invite and actions sheets)
+   --------------------------------------------------------------------------------------------------------- */
+let sheetRet=null,sheetOnClose=null;
+function sheetLayer(){
+ let l=$('ptSheetLayer');
+ if(!l){
+  l=document.createElement('div');l.id='ptSheetLayer';l.hidden=true;l.setAttribute('dir','rtl');
+  l.innerHTML='<div class="pt-scrim" data-pt-close></div><div class="pt-sheet" role="dialog" aria-modal="true" id="ptSheet"></div>';
+  document.body.appendChild(l);
+  l.addEventListener('click',e=>{if(e.target.closest('[data-pt-close]'))closeSheet()});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!l.hidden)closeSheet()});
+ }
+ return l;
+}
+function openSheet(label,html,onClose){
+ const l=sheetLayer(),s=$('ptSheet');
+ sheetRet=document.activeElement;sheetOnClose=onClose||null;
+ s.setAttribute('aria-label',label);s.innerHTML='<div class="pt-handle" aria-hidden="true"></div>'+html;s.scrollTop=0;
+ l.hidden=false;
+ const f=s.querySelector('input:not([disabled]),button.pt-btn:not([disabled]),.pt-act:not([disabled])');try{(f||s).focus({preventScroll:true})}catch{}
+ return s;
+}
+function closeSheet(){
+ const l=$('ptSheetLayer');if(!l||l.hidden)return;
+ l.hidden=true;$('ptSheet').innerHTML='';
+ const cb=sheetOnClose;sheetOnClose=null;try{cb&&cb()}catch{}
+ const r=sheetRet;sheetRet=null;try{r&&r.isConnected&&r.focus({preventScroll:true})}catch{}
+}
+function closeBtn(){return'<button type="button" class="pt-iconbtn" data-pt-close aria-label="סגירה">×</button>'}
+
+/* ---------------------------------------------------------------------------------------------------------
+   F03-ACCT-01: "החשבון שלי" at the top of #more (all roles, cloud only). isPlatformAdmin: own platform_admins row
+   (RLS), read once per start, memory only.
+   --------------------------------------------------------------------------------------------------------- */
+const acct={email:null,pending:null,isAdmin:false,adminKnown:false};
+function injectAccount(){
+ const more=$('more');if(!more||$('ptAccount'))return;
+ const host=more.querySelector('.topbar')&&more.querySelector('.topbar').nextElementSibling;
+ if(!host)return;
+ const w=document.createElement('div');w.id='ptAccount';
+ w.innerHTML='<div class="pt-sec">החשבון שלי</div><div class="pt-acct-card" id="ptAcctCard"></div><div class="pt-sec">הטיול</div>';
+ host.insertBefore(w,host.firstChild);
+ renderAccount();
+}
+function renderAccount(){
+ const card=$('ptAcctCard');if(!card)return;
+ let h;
+ if(acct.email){
+  h='<div class="pt-li" id="ptEmailRow"><span class="pt-ic" style="background:#edf8f3;color:#0f6b4f">'+ICON.mail+'</span><span class="pt-main"><b>מייל מקושר</b><span class="pt-sub pt-ltr" id="ptEmailAddr">'+esc(acct.email)+'</span></span><span class="pt-badge ok">מקושר</span></div>';
+ }else{
+  const sub=acct.pending?'ממתין לאישור: <span class="pt-ltr">'+esc(acct.pending)+'</span>':'אימות במייל · החברות בטיול נשארת';
+  h='<button type="button" class="pt-li" id="ptLinkEmailRow"><span class="pt-ic" style="background:#edf8f3;color:#0f6b4f">'+ICON.mail+'</span><span class="pt-main"><b>קישור מייל לחשבון</b><span class="pt-sub">'+sub+'</span></span><span class="pt-chev" aria-hidden="true">‹</span></button>';
+ }
+ h+='<button type="button" class="pt-li" id="ptAdminRow"'+(acct.isAdmin?'':' hidden')+'><span class="pt-ic" style="background:#eef0fb">'+ICON.shield+'</span><span class="pt-main"><b>ניהול מערכת</b><span class="pt-sub">קבוצות והזמנת מנהלים</span></span><span class="pt-badge adm">סופר-אדמין</span><span class="pt-chev" aria-hidden="true">‹</span></button>';
+ card.innerHTML=h;
+ const l=$('ptLinkEmailRow');if(l)l.onclick=openLinkEmail;
+ const a=$('ptAdminRow');if(a)a.onclick=()=>openAdmin(true);
+}
+async function refreshAccount(){
+ const c=api&&api.client();if(!c)return;
+ try{
+  const s=await api.withTimeout(c.auth.getSession(),api.timeoutMs);const u=s&&s.data&&s.data.session&&s.data.session.user;
+  if(u){acct.email=u.email||null;acct.pending=u.new_email||null;renderAccount()}
+ }catch{}
+ if(online()){
+  try{const g=await api.withTimeout(c.auth.getUser(),api.timeoutMs);const u=g&&g.data&&g.data.user;if(u&&!g.error){acct.email=u.email||null;acct.pending=u.new_email||null}}catch{}
+  try{
+   const uid=api.uid();
+   if(uid){const{data,error}=await api.withTimeout(c.from('platform_admins').select('user_id').eq('user_id',uid).maybeSingle(),api.timeoutMs);
+    acct.isAdmin=!error&&!!data;acct.adminKnown=!error}
+  }catch{}
+  renderAccount();
+ }
+ syncAdminHash();
+}
+
+/* F03-LINK-01: link-email sheet (artboard F03_LinkEmail). */
+function linkErr(e){
+ if(!online())return ERR_HE.offline;
+ const code=String(e&&(e.code||e.error_code)||''),msg=String(e&&e.message||'').toLowerCase(),st=Number(e&&e.status)||0;
+ if(e&&(e.name==='AuthRetryableFetchError'||st===0)&&!code)return ERR_HE.offline;
+ if(st===429||/rate_limit|over_email_send_rate_limit|over_request_rate_limit/.test(code)||/rate limit|too many/.test(msg))return'נשלחו יותר מדי מיילים. נסו שוב בעוד כמה דקות.';
+ if(/email_exists|user_already_exists|identity_already_exists/.test(code)||/already (been )?registered|already exists|already in use/.test(msg))return'המייל הזה כבר מקושר לחשבון אחר.';
+ if(/email_address_invalid|validation_failed|email_address_not_authorized/.test(code)||/invalid/.test(msg)&&/email/.test(msg))return ERR_HE.invalid_email;
+ return'לא הצלחנו לשלוח את המייל. נסו שוב.';
+}
+function openLinkEmail(){
+ const s=openSheet('קישור מייל לחשבון',
+  '<div class="pt-shead"><span class="pt-ic" style="width:44px;height:44px;border-radius:12px;background:#edf8f3;color:#0f6b4f">'+ICON.mail+'</span><div class="pt-main"><h2>קישור מייל לחשבון</h2><p>המכשיר הזה מקבל כתובת מייל. השם, התפקיד והחברות בטיול נשארים בדיוק כמו שהם.</p></div>'+closeBtn()+'</div>'+
+  '<div id="ptLinkBody"><div><label class="pt-lbl" for="ptLinkEmail">כתובת מייל</label><input id="ptLinkEmail" class="pt-in pt-ltr" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="254" value="'+esc(acct.pending||'')+'"><p class="pt-err" id="ptLinkErr" role="alert"></p></div></div>'+
+  '<div class="pt-explain"><div class="pt-step"><span class="pt-num">1</span><span>נשלח אליך מייל אימות לכתובת הזו.</span></div><div class="pt-step"><span class="pt-num">2</span><span>פותחים את הקישור מהמייל <b>בטלפון הזה</b>.</span></div><div class="pt-step"><span class="pt-num">3</span><span>החשבון מקושר. אם הוגדרת כסופר-אדמין, "ניהול מערכת" יופיע במסך "עוד".</span></div></div>'+
+  '<button class="pt-btn" type="button" id="ptLinkSend">שליחת מייל אימות</button><p class="pt-small">המייל לא מוצג לחברי הטיול</p>');
+ const inp=$('ptLinkEmail'),btn=$('ptLinkSend'),err=$('ptLinkErr');
+ inp.oninput=()=>{err.textContent=''};
+ inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();btn.click()}};
+ btn.onclick=async()=>{
+  const email=normEmail(inp.value);err.textContent='';
+  if(!validEmail(email)){err.textContent=ERR_HE.invalid_email;inp.focus();return}
+  if(!online()){err.textContent=ERR_HE.offline;return}
+  const c=api&&api.client();if(!c){err.textContent=ERR_HE.offline;return}
+  btn.disabled=true;btn.textContent='שולחים…';
+  let res=null,thrown=null;
+  try{res=await api.withTimeout(c.auth.updateUser({email},{emailRedirectTo:location.origin+location.pathname.replace(/index\.html$/,'')}),api.timeoutMs)}catch(e){thrown=e}
+  const e=thrown||(res&&res.error)||null;
+  if(e){btn.disabled=false;btn.textContent='שליחת מייל אימות';err.textContent=linkErr(e);return}
+  acct.pending=email;renderAccount();
+  $('ptLinkBody').innerHTML='<div class="pt-ok-msg" role="status" id="ptLinkOk">שלחנו מייל ל-<span class="pt-ltr">'+esc(email)+'</span>. פתחו את הקישור בטלפון הזה.</div>';
+  btn.disabled=false;btn.textContent='סגירה';btn.onclick=closeSheet;
+ };
+ return s;
+}
+
+/* ---------------------------------------------------------------------------------------------------------
+   F03-ADMIN-01: admin screen (artboard F03_Admin). Full-screen layer; html.pt-admin-open hides every other body child
+   (tab bar, chat FAB, FX pill, panels). Created only for a platform admin; `#admin` in the address bar does nothing
+   for anyone else. The list is never cached (memory only while the screen is open).
+   --------------------------------------------------------------------------------------------------------- */
+const adm={open:false,pushed:false,items:[],filter:'all',showRevoked:false,state:'idle',err:''};
+function syncAdminHash(){
+ if(location.hash!=='#admin')return;
+ if(acct.isAdmin){if(!adm.open)openAdmin(false)}
+ else if(acct.adminKnown||!online()){cleanUrl()}
+}
+function openAdmin(push){
+ if(!acct.isAdmin)return;
+ let el=$('admin');
+ if(!el){el=document.createElement('section');el.id='admin';el.setAttribute('dir','rtl');el.setAttribute('aria-labelledby','ptAdminTitle');document.body.appendChild(el)}
+ if(push&&location.hash!=='#admin'){try{history.pushState({ptAdmin:1},'',location.pathname+location.search+'#admin');adm.pushed=true}catch{}}
+ adm.open=true;adm.filter='all';adm.showRevoked=false;
+ document.documentElement.classList.add('pt-admin-open');
+ el.scrollTop=0;
+ loadAdmin();
+}
+function closeAdmin(viaHistory){
+ if(!adm.open)return;
+ if(!viaHistory&&adm.pushed){adm.pushed=false;try{history.back();return}catch{}}
+ adm.open=false;adm.pushed=false;adm.items=[];
+ closeSheet();
+ document.documentElement.classList.remove('pt-admin-open');
+ const el=$('admin');if(el)el.remove();
+ if(location.hash==='#admin')cleanUrl();
+ try{if(typeof switchPanel==='function')switchPanel('more')}catch{}
+ refreshAccount();
+}
+async function loadAdmin(){
+ if(!adm.open)return;
+ if(!online()){adm.state='offline';renderAdmin();return}
+ const c=api&&api.client();if(!c){adm.state='offline';renderAdmin();return}
+ adm.state='loading';renderAdmin();
+ try{
+  const{data,error}=await api.withTimeout(c.rpc('admin_trip_summary'),api.timeoutMs);
+  if(error){
+   if(String(error.code)==='42501'||/not_platform_admin/.test(String(error.message||''))){acct.isAdmin=false;closeAdmin(false);return}
+   throw error;
+  }
+  adm.items=(Array.isArray(data)?data:[]).map(x=>typeof x==='string'?JSON.parse(x):x).filter(x=>x&&typeof x==='object');
+  adm.state='ready';
+ }catch(e){adm.state=online()?'error':'offline'}
+ renderAdmin();
+}
+function classify(items){
+ const inv=items.filter(x=>x.kind==='invite'),trips=items.filter(x=>x.kind==='trip');
+ const pend=inv.filter(x=>x.status==='pending'||x.status==='expired').sort((a,b)=>String(b.last_sent_at||b.created_at).localeCompare(String(a.last_sent_at||a.created_at)));
+ const rev=inv.filter(x=>x.status==='revoked').sort((a,b)=>String(b.last_sent_at||b.created_at).localeCompare(String(a.last_sent_at||a.created_at)));
+ const act=trips.filter(x=>x.status==='active').sort((a,b)=>String(a.start_date||'9999').localeCompare(String(b.start_date||'9999'))||String(a.name).localeCompare(String(b.name)));
+ const end=trips.filter(x=>x.status==='ended').sort((a,b)=>String(b.end_date||'').localeCompare(String(a.end_date||''))||String(a.name).localeCompare(String(b.name)));
+ return{pend,rev,act,end};
+}
+function inviteName(x){return x.draft_name||'קבוצה ללא שם'}
+function inviteCard(x,off){
+ const dis=off?' disabled':'';
+ if(x.status==='pending')return'<article class="pt-icard pt-dashed" data-invite="'+esc(x.id)+'"><div class="pt-row"><div class="pt-q">'+ICON.mail.replace('width="18" height="18"','width="16" height="16"')+'</div><div class="pt-main"><div class="pt-top"><span class="pt-nm">'+esc(inviteName(x))+'</span><span class="pt-badge wait">ממתין למנהל</span></div><div class="pt-l1 pt-ltr">'+esc(x.email)+'</div><div class="pt-l2">'+sentAgo(x.last_sent_at||x.created_at)+' · בתוקף עוד '+daysWord(daysLeft(x.expires_at))+'</div></div><button type="button" class="pt-iconbtn" data-pt-more="'+esc(x.id)+'" aria-label="פעולות על ההזמנה ל'+esc(inviteName(x))+'"'+dis+'>'+ICON.dots+'</button></div></article>';
+ if(x.status==='expired')return'<article class="pt-icard pt-dashed" data-invite="'+esc(x.id)+'"><div class="pt-row"><div class="pt-q">'+ICON.clock+'</div><div class="pt-main"><div class="pt-top"><span class="pt-nm">'+esc(inviteName(x))+'</span><span class="pt-badge exp">פג תוקף</span></div><div class="pt-l1 pt-ltr">'+esc(x.email)+'</div><div class="pt-l2">פג ב-'+dm(x.expires_at)+' · '+(x.opened_at?'הקישור נפתח':'ההזמנה לא נפתחה')+'</div></div></div><div class="pt-actions"><button class="pt-btn pt-out pt-sm" type="button" data-pt-resend="'+esc(x.id)+'"'+dis+'>שליחה מחדש</button><button class="pt-btn pt-out pt-sm pt-danger" type="button" data-pt-remove="'+esc(x.id)+'"'+dis+'>הסרה מהרשימה</button></div></article>';
+ return'<article class="pt-icard pt-dashed" data-invite="'+esc(x.id)+'" style="opacity:.75"><div class="pt-row"><div class="pt-q">'+ICON.mail.replace('width="18" height="18"','width="16" height="16"')+'</div><div class="pt-main"><div class="pt-top"><span class="pt-nm">'+esc(inviteName(x))+'</span><span class="pt-badge done">בוטלה</span></div><div class="pt-l1 pt-ltr">'+esc(x.email)+'</div><div class="pt-l2">נשלחה ב-'+dm(x.last_sent_at||x.created_at)+'</div></div></div></article>';
+}
+function tripCard(x){
+ const cs=Array.isArray(x.countries)?x.countries:[];
+ const flags=cs.slice(0,3).map(flag).join('')||'🧭';
+ const names=cs.slice(0,3).map(countryName).join(', ')+(cs.length>3?' +'+(cs.length-3):'');
+ const mg=Array.isArray(x.managers)?x.managers:[];
+ const range=tripRange(x.start_date,x.end_date);
+ const parts=[names?esc(names):'',range?'<span class="pt-ltr" style="display:inline-block">'+esc(range)+'</span>':'',membersWord(x.member_count)].filter(Boolean);
+ const ended=x.status==='ended';
+ return'<article class="pt-icard" data-trip="'+esc(x.id)+'"><div class="pt-row"><div class="pt-flag" aria-hidden="true">'+flags+'</div><div class="pt-main"><div class="pt-top"><span class="pt-nm">'+esc(x.name)+'</span><span class="pt-badge '+(ended?'done':'ok')+'">'+(ended?'הסתיימה':'פעילה')+'</span></div><div class="pt-l1">מנהלים: '+(mg.length?esc(mg.join(', ')):'—')+'</div><div class="pt-l2">'+parts.join(' · ')+'</div></div></div></article>';
+}
+function renderAdmin(){
+ const el=$('admin');if(!el||!adm.open)return;
+ const off=!online();
+ const g=classify(adm.items);
+ const n={all:g.pend.length+g.act.length+g.end.length,pend:g.pend.length,act:g.act.length,end:g.end.length};
+ const list=adm.filter==='pend'?g.pend:adm.filter==='act'?g.act:adm.filter==='end'?g.end:g.pend.concat(g.act,g.end);
+ const seg=[['all','הכל'],['pend','ממתינות'],['act','פעילות'],['end','הסתיימו']].map(([k,l])=>'<button type="button" data-pt-filter="'+k+'" aria-pressed="'+(adm.filter===k)+'">'+l+' · '+n[k]+'</button>').join('');
+ let body='';
+ if(adm.state==='offline'||off)body+='<div class="pt-offline" role="status" id="ptAdminOffline">אין חיבור — הרשימה תתעדכן כשהרשת תחזור</div>';
+ if(adm.state==='loading')body+='<div class="pt-empty" aria-busy="true">טוען…</div>';
+ else if(adm.state==='error')body+='<div class="pt-empty" role="alert">לא הצלחנו לטעון את הרשימה.<br><button type="button" class="pt-linkbtn" id="ptAdminRetry">נסו שוב</button></div>';
+ else if(adm.state==='ready'){
+  body+=list.length?list.map(x=>x.kind==='trip'?tripCard(x):inviteCard(x,off)).join(''):'<div class="pt-empty">אין כאן עדיין קבוצות או הזמנות.</div>';
+  if(g.rev.length&&(adm.filter==='all'||adm.filter==='pend')){
+   body+='<button type="button" class="pt-linkbtn" id="ptRevokedToggle" aria-expanded="'+adm.showRevoked+'">הזמנות שבוטלו · '+g.rev.length+'</button>';
+   if(adm.showRevoked)body+=g.rev.map(x=>inviteCard(x,off)).join('');
+  }
+ }
+ el.innerHTML='<div class="pt-adm-head"><button type="button" class="pt-iconbtn pt-bare" id="ptAdminBack" aria-label="חזרה למסך עוד">'+ICON.back+'</button><div style="flex-grow:1;min-width:0"><h1 id="ptAdminTitle">ניהול מערכת</h1><div class="pt-sub">Plan_Travel · סופר-אדמין</div></div></div>'+
+  '<div class="pt-adm-body"><button class="pt-btn" type="button" id="ptInviteOpen"'+(off?' disabled':'')+'>'+ICON.plus+'הזמנת מנהל לקבוצה חדשה</button>'+
+  '<div class="pt-seg" role="group" aria-label="סינון">'+seg+'</div>'+body+
+  '<div class="pt-foot">'+ICON.lock+'<span>מוצגים רק שם, מנהלים, יעד, תאריכים ומספר חברים. התוכן פרטי.</span></div></div>';
+}
+function findInvite(id){return adm.items.find(x=>x.kind==='invite'&&x.id===id)||null}
+function adminClick(e){
+ const t=e.target.closest('button');if(!t||t.disabled)return;
+ if(t.id==='ptAdminBack'){closeAdmin(false);return}
+ if(t.id==='ptAdminRetry'){loadAdmin();return}
+ if(t.id==='ptInviteOpen'){openInviteSheet();return}
+ if(t.id==='ptRevokedToggle'){adm.showRevoked=!adm.showRevoked;renderAdmin();return}
+ if(t.dataset.ptFilter){adm.filter=t.dataset.ptFilter;renderAdmin();return}
+ if(t.dataset.ptMore){const x=findInvite(t.dataset.ptMore);if(x)openActions(x);return}
+ if(t.dataset.ptResend){doResend(t.dataset.ptResend,t);return}
+ if(t.dataset.ptRemove){doRevoke(t.dataset.ptRemove,t,'ההזמנה הוסרה מהרשימה');return}
+}
+
+/* F03-INV-01: invite sheet (artboard F03_InviteSheet). */
+function openInviteSheet(prefill){
+ let conflict=null;   /* {email, invite} while the entered email has an active invite */
+ openSheet('הזמנת מנהל',
+  '<div class="pt-shead"><div class="pt-main"><h2>הזמנת מנהל לקבוצה חדשה</h2><p>המנהל יקבל מייל עם קישור חד-פעמי ויקים את הטיול בעצמו.</p></div>'+closeBtn()+'</div>'+
+  '<div><label class="pt-lbl" for="ptInvEmail">מייל של המנהל</label><input id="ptInvEmail" class="pt-in pt-ltr" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254" value="'+esc(prefill&&prefill.email||'')+'"><p class="pt-err" id="ptInvEmailErr" role="alert"></p></div>'+
+  '<div id="ptInvExists" class="pt-exists" role="status" hidden></div>'+
+  '<div><label class="pt-lbl" for="ptInvName">שם זמני לקבוצה (לא חובה)</label><input id="ptInvName" class="pt-in" maxlength="80" placeholder="למשל: יפן 2027" value="'+esc(prefill&&prefill.name||'')+'"><p class="pt-hint">המנהל יוכל לשנות את השם באשף ההקמה.</p></div>'+
+  '<p class="pt-err" id="ptInvErr" role="alert"></p>'+
+  '<button class="pt-btn" type="button" id="ptInvSend">שליחת הזמנה במייל</button><p class="pt-small">הקישור בתוקף 7 ימים ומנוצל פעם אחת, בהקמת הטיול</p>');
+ const em=$('ptInvEmail'),nm=$('ptInvName'),btn=$('ptInvSend'),ex=$('ptInvExists'),e1=$('ptInvEmailErr'),e2=$('ptInvErr');
+ function paint(){
+  const same=conflict&&normEmail(em.value)===conflict.email;
+  em.classList.toggle('pt-warn',!!same);ex.hidden=!same;
+  btn.disabled=!!same||!online();
+ }
+ em.oninput=()=>{e1.textContent='';e2.textContent='';paint()};
+ btn.onclick=async()=>{
+  const email=normEmail(em.value),name=nm.value.trim();e1.textContent='';e2.textContent='';
+  if(!validEmail(email)){e1.textContent=ERR_HE.invalid_email;em.focus();return}
+  if(name.length>80){e2.textContent=ERR_HE.invalid_name;return}
+  btn.disabled=true;btn.textContent='שולחים…';
+  try{
+   await invoke('create',{email,draft_name:name||null});
+   closeSheet();toast('ההזמנה נשלחה ל-'+email);loadAdmin();return;
+  }catch(e){
+   btn.textContent='שליחת הזמנה במייל';
+   if(e.code==='invite_exists'){
+    const d=e.data||{};const nmv=d.draft_name||'קבוצה ללא שם';const left=d.expires_at?daysLeft(d.expires_at):(d.days_left||0);
+    conflict={email,invite:Object.assign({kind:'invite',status:'pending',email,id:d.invite_id,draft_name:d.draft_name||null,expires_at:d.expires_at},findInvite(d.invite_id)||{})};
+    ex.innerHTML='<div style="display:flex;gap:8px;align-items:flex-start">'+ICON.warn+'<span>לכתובת הזו כבר יש הזמנה פעילה (<b>'+esc(nmv)+'</b>, בתוקף עוד '+daysWord(left)+'). אי אפשר לשלוח הזמנה שנייה במקביל.</span></div><button class="pt-btn pt-out" type="button" id="ptInvExistingBtn" style="min-height:44px;font-size:13.5px">לשלוח שוב את ההזמנה הקיימת</button>';
+    $('ptInvExistingBtn').onclick=async()=>{let x=findInvite(conflict.invite.id);if(!x){await loadAdmin();x=findInvite(conflict.invite.id)}openActions(x||conflict.invite)};
+    paint();return;
+   }
+   e2.textContent=e.code==='email_failed'?'שליחת המייל נכשלה, וההזמנה לא נשמרה. נסו שוב.':errText(e.code);
+   btn.disabled=!online();
+  }
+ };
+ paint();
+}
+
+/* F03-ACT-01: actions sheet (artboard F03_InviteActions). Revoke asks for confirmation first. */
+function openActions(x){
+ const badge=x.status==='expired'?'<span class="pt-badge exp">פג תוקף</span>':x.status==='revoked'?'<span class="pt-badge done">בוטלה</span>':'<span class="pt-badge wait">ממתין למנהל</span>';
+ const off=!online()||x.status==='revoked';
+ openSheet('הזמנה ל'+inviteName(x),
+  '<div class="pt-shead"><div class="pt-main"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><h2>'+esc(inviteName(x))+'</h2>'+badge+'</div><div class="pt-l1 pt-ltr" style="margin-top:2px">'+esc(x.email)+'</div></div>'+closeBtn()+'</div>'+
+  '<div id="ptActBody"><div>'+
+  '<div class="pt-kv"><span>נשלחה לראשונה</span><span>'+esc(dmy(x.created_at))+'</span></div>'+
+  '<div class="pt-kv"><span>שליחה אחרונה</span><span>'+esc(dmy(x.last_sent_at||x.created_at))+' · '+timesWord(x.send_count)+'</span></div>'+
+  '<div class="pt-kv"><span>בתוקף עד</span><span>'+esc(dmy(x.expires_at))+'</span></div>'+
+  '<div class="pt-kv"><span>הקישור נפתח</span><span>'+(x.opened_at?esc(dmy(x.opened_at)):'עדיין לא')+'</span></div></div></div>'+
+  '<p class="pt-err" id="ptActErr" role="alert"></p>'+
+  '<button class="pt-act" type="button" id="ptActResend"'+(off?' disabled':'')+'><span class="pt-ic">'+ICON.resend+'</span><span style="flex-grow:1"><b>שליחה חוזרת</b><span class="pt-sub">קישור חדש במייל; הקודם מפסיק לעבוד, והתוקף מתחדש ל-7 ימים</span></span></button>'+
+  '<button class="pt-act pt-act-danger" type="button" id="ptActRevoke"'+(off?' disabled':'')+'><span class="pt-ic">'+ICON.ban+'</span><span style="flex-grow:1"><b>ביטול ההזמנה</b><span class="pt-sub">הקישור יפסיק לעבוד מיד. אפשר להזמין שוב אחר כך</span></span></button>'+
+  '<p class="pt-small" style="margin:0">הזמנה שכבר נוצלה להקמת טיול אי אפשר לבטל</p>');
+ $('ptActResend').onclick=()=>doResend(x.id,$('ptActResend'),x.email);
+ $('ptActRevoke').onclick=()=>{
+  const s=$('ptSheet');
+  s.querySelectorAll('.pt-act,.pt-small').forEach(n=>n.hidden=true);
+  const box=document.createElement('div');box.id='ptConfirm';box.setAttribute('role','alertdialog');box.setAttribute('aria-label','אישור ביטול');
+  box.innerHTML='<p style="margin:0 0 12px;font-size:14px;line-height:1.6">לבטל את ההזמנה ל-<span class="pt-ltr">'+esc(x.email)+'</span>? הקישור יפסיק לעבוד מיד.</p><div class="pt-actions" style="margin:0"><button type="button" class="pt-btn pt-red" id="ptConfirmYes">ביטול ההזמנה</button><button type="button" class="pt-btn pt-out" id="ptConfirmNo">חזרה</button></div>';
+  s.appendChild(box);
+  $('ptConfirmNo').onclick=()=>{box.remove();s.querySelectorAll('.pt-act,.pt-small').forEach(n=>n.hidden=false)};
+  $('ptConfirmYes').onclick=()=>doRevoke(x.id,$('ptConfirmYes'),'ההזמנה בוטלה');
+  try{$('ptConfirmNo').focus()}catch{}
+ };
+}
+function sheetErr(msg){const e=$('ptActErr');if(e&&!$('ptSheetLayer').hidden){e.textContent=msg;return true}return false}
+async function doResend(id,btn,email){
+ const x=findInvite(id);email=email||(x&&x.email)||'';
+ if(btn)btn.disabled=true;
+ try{await invoke('resend',{invite_id:id});closeSheet();toast('ההזמנה נשלחה שוב ל-'+email);loadAdmin()}
+ catch(e){
+  if(btn)btn.disabled=false;
+  const msg=e.code==='email_failed'?'שליחת המייל נכשלה. הקישור הקודם עדיין בתוקף.':errText(e.code);
+  if(!sheetErr(msg))toast(msg);
+  if(e.code==='invite_closed'||e.code==='invite_not_found')loadAdmin();
+ }
+}
+async function doRevoke(id,btn,okMsg){
+ if(btn)btn.disabled=true;
+ try{await invoke('revoke',{invite_id:id});closeSheet();toast(okMsg);loadAdmin()}
+ catch(e){if(btn)btn.disabled=false;const msg=errText(e.code);if(!sheetErr(msg))toast(msg);if(e.code==='invite_used')loadAdmin()}
+}
+
+/* ---------------------------------------------------------------------------------------------------------
+   start hook: runs once the gate has started the main script (html loses pt-booting and __PT.started is true).
+   --------------------------------------------------------------------------------------------------------- */
+let started=false;
+function onStarted(){
+ if(started||!api||!window.__PT||!window.__PT.started)return;
+ started=true;
+ injectAccount();
+ refreshAccount();
+ if(authNotice==='linked')toast('המייל קושר לחשבון ✓');
+ else if(authNotice==='error')toast('קישור האימות כבר לא בתוקף. שלחו מייל אימות חדש.');
+ else if(authNotice==='pending')toast('האישור התקבל. פתחו את הקישור מהמייל השני אם נשלח.');
+ document.addEventListener('click',e=>{const a=$('admin');if(a&&a.contains(e.target))adminClick(e)});
+ window.addEventListener('hashchange',()=>{if(location.hash==='#admin'){syncAdminHash()}else if(adm.open){closeAdmin(true)}});
+ window.addEventListener('online',()=>{refreshAccount();if(adm.open)loadAdmin()});
+ window.addEventListener('offline',()=>{if(adm.open)renderAdmin()});
+}
+try{
+ new MutationObserver(()=>{if(!started&&window.__PT&&window.__PT.started)setTimeout(onStarted,0)})
+  .observe(document.documentElement,{attributes:true,attributeFilter:['class']});
+}catch{}
+
+function attach(a){if(!api&&a&&typeof a==='object')api=a}
+try{Object.defineProperty(window,'__ptF03',{value:Object.freeze({version:F03_VERSION,attach,takeOverBoot}),writable:false,configurable:false})}catch{}
+})();
 </script>
 <!-- CHANGE 2026-10-04 F02-GATE-01: the v2.15.2 GM-08 block (static supabase-js <script> tag + the inline IIFE that
      created a client for the old live project and defined window.storage on its key-value table) is REMOVED and
@@ -72,7 +706,7 @@ html.pt-gate body>*:not(#ptGate){display:none!important}
 (function(){
 'use strict';
 /* CHANGE 2026-10-04 F02-FLAG-01: STORAGE_BACKEND and CHAT_FEATURE are read from the top-level flags script above. */
-const PT_VERSION='3.0.0-alpha.2';
+const PT_VERSION='3.0.0-alpha.3';   /* CHANGE 2026-10-05 F03-VER-03: was '3.0.0-alpha.2' (window.__PT.version reports the app version) */
 const PT_SUPABASE_URL='https://zwufpxnioqaweobnvffs.supabase.co';
 const PT_SUPABASE_KEY='sb_publishable_Atuc7ybYTF2o7ujCJBjKjA_So_TbaV8';
 const PT_AUTH_KEY_PREFIX='sb-zwufpxnioqaweobnvffs-';   /* supabase-js default storageKey = sb-<ref>-auth-token */
@@ -317,6 +951,17 @@ function start(){
   /* F02-MAPS-01: replay a Google Maps callback that arrived before the main script existed */
   try{if(window.__ptGmapsReady&&typeof google!=='undefined'&&typeof initMap==='function'&&typeof map!=='undefined'&&!map)initMap()}catch(e){console.warn('[pt] initMap replay failed',e)}
  });
+}
+
+/* CHANGE 2026-10-05 F03-GATE-01: new lines (no alpha.2 equivalent), additive — no existing statement changed.
+   Hands the F03 block (head, window.__ptF03; absent when ADMIN_FEATURE='off' or local-only) read-only access to this gate's
+   client, uid and timeout helper, plus the invite-manager endpoint (spec §4: PT_SUPABASE_URL + '/functions/v1/invite-manager').
+   If the page was opened with #invite=<token>, the F03 landing page takes over and the trip boot below does not run
+   (spec §1.6: "before trip boot"); the `return` leaves this IIFE early. With F03 absent this block does nothing. */
+const PT_ADMIN_ENDPOINT=PT_SUPABASE_URL+'/functions/v1/invite-manager';
+if(window.__ptF03&&STORAGE_BACKEND==='cloud'){
+ window.__ptF03.attach({endpoint:PT_ADMIN_ENDPOINT,key:PT_SUPABASE_KEY,client:()=>sb,uid:()=>state.uid,withTimeout,timeoutMs:PT_TIMEOUT_MS});
+ if(window.__ptF03.takeOverBoot()){state.phase='invite-landing';return}
 }
 
 boot().catch(e=>{console.warn('[pt] boot failed',e);const c=readCached();if(c&&STORAGE_BACKEND==='cloud')startCached(c);else showCard()});
@@ -4599,7 +5244,7 @@ if($('importExcelInput')){
       documents are marked as unavailable offline. A "גרסה חדשה זמינה · רענון" card appears when a newer version is
       published while the app is open (checked every 10 minutes and when the app comes back to the foreground).
    Revert: VAULT_IDB='off' (localStorage again), APP_UPDATE_CHECK='off'. */
-const APP_VERSION='3.0.0-alpha.2'; /* CHANGE 2026-10-04 F02-VER-01: bumped 2.15.2 -> 3.0.0-alpha.2 (Plan_Travel F02; the update check now fetches this app's own path). */ /* CHANGE 2026-09-30 v2.13.0: bumped with QUICK-EXP-01/HOME-MIN-01 (drives the new-version card). CHANGE 2026-10-01 v2.14.0: bumped with UI-KIT-01/FLIGHT-CARD-01. CHANGE 2026-10-02 v2.15.0: bumped with DAY-PICKER-01/EDIT-MENU-01. CHANGE 2026-10-02 v2.15.1: bumped with HOME-EDIT-01. CHANGE 2026-10-04 v2.15.2: bumped with DAY-TODAY-01 */
+const APP_VERSION='3.0.0-alpha.3'; /* CHANGE 2026-10-05 F03-VER-01: bumped 3.0.0-alpha.2 -> 3.0.0-alpha.3 (Plan_Travel F03). */ /* CHANGE 2026-10-04 F02-VER-01: bumped 2.15.2 -> 3.0.0-alpha.2 (Plan_Travel F02; the update check now fetches this app's own path). */ /* CHANGE 2026-09-30 v2.13.0: bumped with QUICK-EXP-01/HOME-MIN-01 (drives the new-version card). CHANGE 2026-10-01 v2.14.0: bumped with UI-KIT-01/FLIGHT-CARD-01. CHANGE 2026-10-02 v2.15.0: bumped with DAY-PICKER-01/EDIT-MENU-01. CHANGE 2026-10-02 v2.15.1: bumped with HOME-EDIT-01. CHANGE 2026-10-04 v2.15.2: bumped with DAY-TODAY-01 */
 const VAULT_IDB='on';
 const APP_UPDATE_CHECK='on';
 const _vxOrigGetDocuments=getDocuments,_vxOrigSaveDocuments=saveDocuments;
