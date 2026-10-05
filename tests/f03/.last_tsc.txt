@@ -1,0 +1,1 @@
+error TS6044: Compiler option 'types' expects an argument.
