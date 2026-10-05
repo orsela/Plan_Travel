@@ -1,0 +1,44 @@
+....................................s...                                 [100%]
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_f02.py::test_ac01_anonymous_identity_silent_and_survives_reload
+PASSED tests/test_f02.py::test_ac02_not_connected_card[unlinked]
+PASSED tests/test_f02.py::test_ac02_not_connected_card[pending]
+PASSED tests/test_f02.py::test_ac02_not_connected_card[removed]
+PASSED tests/test_f02.py::test_ac03_viewer_write_rejected_kept_locally_and_pending
+PASSED tests/test_f02.py::test_ac04_import_tool_counts_and_bytes
+PASSED tests/test_f02.py::test_ac05_parity_with_v2152_rendering
+PASSED tests/test_f02.py::test_ac06_writes_land_with_trip_id_and_updated_by
+PASSED tests/test_f02.py::test_ac07_zero_requests_to_live_project
+PASSED tests/test_f02.py::test_ac08_offline_changes_queued_under_trip_namespace_and_flushed
+PASSED tests/test_f02.py::test_ac09_concurrent_edits_same_sync_merge_outcome
+PASSED tests/test_f02.py::test_ac10_live_app_state_byte_identical_after_session
+PASSED tests/test_f02.py::test_ac11_two_trips_do_not_mix
+PASSED tests/test_f02.py::test_ac12_chat_soon_zero_network
+PASSED tests/test_f02.py::test_ac13_local_only_flag_no_supabase
+PASSED tests/test_f02.py::test_ac14_390px_rtl_touch_targets
+PASSED tests/test_f02.py::test_ac15_static[protected:drawMap]
+PASSED tests/test_f02.py::test_ac15_static[protected:drawGoogleMap]
+PASSED tests/test_f02.py::test_ac15_static[protected:drawSchematicMap]
+PASSED tests/test_f02.py::test_ac15_static[protected:fallbackToSchematic]
+PASSED tests/test_f02.py::test_ac15_static[protected:SEED_DATA]
+PASSED tests/test_f02.py::test_ac15_static[protected:stayBlock]
+PASSED tests/test_f02.py::test_ac15_static[protected:bookingUrl]
+PASSED tests/test_f02.py::test_ac15_static[app_version]
+PASSED tests/test_f02.py::test_ac15_static[title_version]
+PASSED tests/test_f02.py::test_ac15_static[change_comments_index]
+PASSED tests/test_f02.py::test_ac15_static[change_comments_sw]
+PASSED tests/test_f02.py::test_ac15_static[node_check_inline_scripts]
+PASSED tests/test_f02.py::test_ac15_static[node_check_sw]
+PASSED tests/test_f02.py::test_ac15_static[no_localstorage_clear]
+PASSED tests/test_f02.py::test_ac15_static[no_live_project_ref]
+PASSED tests/test_f02.py::test_ac15_static[sw_cache_names_pt]
+PASSED tests/test_f02.py::test_ac15_static[sw_never_deletes_foreign_caches]
+PASSED tests/test_f02.py::test_ac15_static[manifest_id]
+PASSED tests/test_f02.py::test_ac15_static[manifest_visible_fields_unchanged]
+PASSED tests/test_f02.py::test_ac15_static[storage_backend_default_cloud]
+PASSED tests/test_f02.py::test_spec_s4_storage_interface_mapping_escaping_timeout
+PASSED tests/test_f02.py::test_spec_s3_offline_start_and_no_cache
+PASSED tests/test_f02.py::test_spec_s2_list_fallback_sees_only_trip_keys
+SKIPPED [1] tests/test_f02.py:1843: C16 needs the real database: covered by sql/qa_f02.sql (#40-44, anon reads 0 rows) and the Supabase advisors run by the architect via the Connector
+39 passed, 1 skipped in 151.73s (0:02:31)
