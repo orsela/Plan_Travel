@@ -1,4 +1,5 @@
--- Plan_Travel migration 0005_f02 · version 3.0.0-alpha.2 · F02
+-- Plan_Travel migration 0006_f02 · version 3.0.0-alpha.2 · F02
+-- Numbering note (2026-10-05): 0005 is taken by 0005_f02_test_trip (test trip + admin_assign_device, applied 2026-10-04 02:48 UTC); this file is 0006.
 -- CHANGE 2026-10-04 F02-DB-01: add public.trip_kv and public.trip_members to the supabase_realtime publication
 -- (planned in F01 for F02; the app does not subscribe yet — F05 will). What changed from 0001–0004: publication
 -- membership only. No new tables, no new columns, no policy or grant changes (docs/F02_spec.md §7).
