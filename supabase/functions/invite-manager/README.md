@@ -29,7 +29,7 @@ Behaviour notes
 - Logs: one JSON line per event with the event name, invite id and error code only. Never tokens, hashes, emails, bodies.
 - CORS: `Access-Control-Allow-Origin` is echoed only for `https://orsela.github.io` and `http://localhost[:port]`.
 - Email: `"Plan_Travel" <GMAIL_USER>`, subject `הוזמנת לנהל טיול ב-Plan_Travel`, RTL HTML + plain-text part, no images,
-  no tracking pixels. SMTP `smtp.gmail.com:465` implicit TLS via `denomailer@1.6.0` (Supabase Edge blocks 25/587).
+  no tracking pixels. SMTP `smtp.gmail.com:465` implicit TLS via a small built-in SMTP client (`smtpSend`, `buildMime`; denomailer removed 2026-10-09, F03-MAIL-04, because it broke Hebrew subjects) (Supabase Edge blocks 25/587).
 
 ## Deployment (Or, dashboard)
 
@@ -58,7 +58,7 @@ deno test --no-check --import-map=supabase/functions/invite-manager/test_import_
 deno check --import-map=supabase/functions/invite-manager/test_import_map.json supabase/functions/invite-manager/index.ts
 ```
 
-The two remote imports (`npm:@supabase/supabase-js@2.45.4`, `denomailer@1.6.0`) are only used by the production wiring
+The one remote import (`npm:@supabase/supabase-js@2.45.4`) is only used by the production wiring
 at the bottom of `index.ts` (`import.meta.main`), so the stubs in `test_stubs/` never change what the tests exercise.
 Not covered offline: the real supabase-js query shapes in `supabaseStore()` and the real SMTP send — verified on the
 deployed function (spec §6.7).

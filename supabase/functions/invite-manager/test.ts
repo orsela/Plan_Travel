@@ -403,18 +403,75 @@ Deno.test("bad requests: invalid JSON / unknown action → 400 invalid_request; 
   assert(!s.logs.some((l) => l.includes("Bearer") || l.includes("jwt-admin")));
 });
 
-// CHANGE 2026-10-09 F03-MAIL-03: the subject handed to the mailer is ASCII-only RFC 2047 and decodes back exactly.
-Deno.test("F03-MAIL-03 encodeSubjectHeader: ASCII-only, decodes to the original, short words", async () => {
-  const { encodeSubjectHeader, EMAIL_SUBJECT } = await import("./index.ts");
-  const h = encodeSubjectHeader(EMAIL_SUBJECT);
-  if (!/^[\x20-\x7e]+$/.test(h)) throw new Error("not ASCII: " + h);
-  const words = h.split(" ");
-  const dec = words.map((w) => {
-    const m = /^=\?UTF-8\?B\?([A-Za-z0-9+/=]+)\?=$/.exec(w);
-    if (!m) throw new Error("bad word " + w);
-    if (w.length > 75) throw new Error("word too long " + w.length);
-    return new TextDecoder().decode(Uint8Array.from(atob(m[1]), (c) => c.charCodeAt(0)));
-  }).join("");
-  if (dec !== EMAIL_SUBJECT) throw new Error("roundtrip: " + dec);
-  if (encodeSubjectHeader("Hello") !== "Hello") throw new Error("ascii changed");
+// CHANGE 2026-10-09 F03-MAIL-04: the MIME we build has short, correctly folded header lines, a subject that decodes
+//   back exactly, and both bodies; the SMTP dialogue is checked against a local fake server.
+Deno.test("F03-MAIL-04 buildMime: folded subject decodes, lines ≤ 78, both parts present", async () => {
+  const { buildMime, EMAIL_SUBJECT, renderInviteEmail } = await import("./index.ts");
+  const m = renderInviteEmail({ to: "a@b.co", inviter: "אור", draftName: "טוקיו 27", link: "https://x/#invite=T", expiresAt: "2026-10-16T00:00:00Z" });
+  const raw = buildMime({ from: "s@gmail.com", fromName: "Plan_Travel", to: "a@b.co", subject: m.subject, text: m.text, html: m.html, date: new Date(0), id: "abc" });
+  const [head, body] = [raw.slice(0, raw.indexOf("\r\n\r\n")), raw.slice(raw.indexOf("\r\n\r\n") + 4)];
+  for (const l of raw.split("\r\n")) if (l.length > 78) throw new Error("long line " + l.length + ": " + l.slice(0, 40));
+  if (!/^[\x00-\x7f]*$/.test(raw)) throw new Error("non-ASCII in message");
+  const lines = head.split("\r\n");
+  for (const l of lines) if (!/^[A-Za-z-]+: /.test(l) && !/^ /.test(l)) throw new Error("header line not a field or fold: " + l);
+  const unfolded = head.replace(/\r\n /g, " ");
+  const subj = /^Subject: (.*)$/m.exec(unfolded)![1];
+  const dec = subj.split(" ").map((w) => new TextDecoder().decode(Uint8Array.from(atob(/^=\?UTF-8\?B\?(.+)\?=$/.exec(w)![1]), (c) => c.charCodeAt(0)))).join("");
+  if (dec !== EMAIL_SUBJECT) throw new Error("subject roundtrip: " + dec);
+  if (!body.includes("Content-Type: text/plain; charset=UTF-8") || !body.includes("Content-Type: text/html; charset=UTF-8")) throw new Error("parts missing");
+  const htmlB64 = body.split("Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n")[1].split("\r\n--pt-abc--")[0].replace(/\r\n/g, "");
+  const html = new TextDecoder().decode(Uint8Array.from(atob(htmlB64), (c) => c.charCodeAt(0)));
+  if (html !== m.html) throw new Error("html roundtrip");
+  if (!raw.endsWith("--pt-abc--\r\n")) throw new Error("no closing boundary");
+});
+
+Deno.test("F03-MAIL-04 smtpSend: full dialogue against a fake server; AUTH failure surfaces the code", async () => {
+  const { smtpSend } = await import("./index.ts");
+  async function run(authCode: number) {
+    const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+    const port = (l.addr as Deno.NetAddr).port;
+    const seen: string[] = [];
+    const server = (async () => {
+      const c = await l.accept();
+      const enc = new TextEncoder(), dec = new TextDecoder();
+      const w = (s: string) => c.write(enc.encode(s + "\r\n"));
+      await w("220 fake ready");
+      let buf = "", inData = false;
+      const b = new Uint8Array(65536);
+      outer: for (;;) {
+        const n = await c.read(b); if (n === null) break;
+        buf += dec.decode(b.subarray(0, n));
+        for (;;) {
+          if (inData) {
+            const e = buf.indexOf("\r\n.\r\n"); if (e < 0) break;
+            seen.push("DATA:" + buf.slice(0, e)); buf = buf.slice(e + 5); inData = false; await w("250 queued"); continue;
+          }
+          const k = buf.indexOf("\r\n"); if (k < 0) break;
+          const line = buf.slice(0, k); buf = buf.slice(k + 2); seen.push(line);
+          if (line.startsWith("EHLO")) { await w("250-fake"); await w("250 AUTH PLAIN LOGIN"); }
+          else if (line.startsWith("AUTH")) { await w(authCode === 235 ? "235 ok" : "535 5.7.8 bad"); }
+          else if (line.startsWith("MAIL") || line.startsWith("RCPT")) await w("250 ok");
+          else if (line === "DATA") { await w("354 go"); inData = true; }
+          else if (line === "QUIT") { await w("221 bye"); break outer; }
+        }
+      }
+      try { c.close(); } catch { /* */ }
+      l.close();
+    })();
+    let err: unknown = null;
+    try {
+      const conn = await Deno.connect({ hostname: "127.0.0.1", port });
+      await smtpSend(conn, { user: "u@x.co", pass: "pw", from: "u@x.co", to: "t@y.co", data: "Subject: hi\r\n\r\n.dot\r\nbody" });
+    } catch (e) { err = e; }
+    await server.catch(() => {});
+    return { seen, err };
+  }
+  const ok = await run(235);
+  if (ok.err) throw ok.err;
+  if (!ok.seen.includes("MAIL FROM:<u@x.co>") || !ok.seen.includes("RCPT TO:<t@y.co>")) throw new Error("envelope: " + ok.seen.join("|"));
+  const data = ok.seen.find((s) => s.startsWith("DATA:"))!;
+  if (!data.includes("\r\n..dot")) throw new Error("dot-stuffing missing");
+  if (ok.seen.some((s) => s.includes("pw") && !s.startsWith("AUTH"))) throw new Error("password leaked");
+  const bad = await run(535);
+  if (!(bad.err instanceof Error) || !bad.err.message.startsWith("SMTP 535")) throw new Error("auth failure not surfaced: " + bad.err);
 });

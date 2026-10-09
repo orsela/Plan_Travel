@@ -1,6 +1,5 @@
 {
   "imports": {
-    "npm:@supabase/supabase-js@2.45.4": "./test_stubs/supabase_js.ts",
-    "https://deno.land/x/denomailer@1.6.0/mod.ts": "./test_stubs/denomailer.ts"
+    "npm:@supabase/supabase-js@2.45.4": "./test_stubs/supabase_js.ts"
   }
 }

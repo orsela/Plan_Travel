@@ -1,4 +1,4 @@
-// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.4 · F03
+// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.5 · F03
 // CHANGE 2026-10-05 F03-FN-01: new file (no previous version). Super-admin manager invites: actions create / resend /
 //   revoke / check (docs/F03_spec.md §3). Runs with the service role; verify_jwt is OFF for this function because
 //   `check` is called by an invitee who has no session — every other action verifies the caller's JWT itself and
@@ -7,7 +7,7 @@
 // Structure (one file, so it can be pasted into the dashboard editor as-is):
 //   1. pure helpers (validation, tokens, hashing, CORS, email rendering) — exported for test.ts
 //   2. makeHandler(deps) — all request logic, with the database, the mailer, the clock and the random source injected
-//   3. production wiring (supabase-js service client + denomailer SMTP over smtp.gmail.com:465 implicit TLS),
+//   3. production wiring (supabase-js service client + a small built-in SMTP client over smtp.gmail.com:465 TLS),
 //      only when this file is the entry point.
 //
 // Secrets: GMAIL_USER, GMAIL_APP_PASSWORD, APP_URL (default https://orsela.github.io/Plan_Travel/app/).
@@ -15,12 +15,12 @@
 // Never logs tokens, request bodies or email addresses; never returns token_hash.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+// CHANGE 2026-10-09 F03-MAIL-04: denomailer removed (it broke Hebrew subjects into raw MIME in Gmail, twice).
 
 // =====================================================================================================
 // 1. Pure helpers
 // =====================================================================================================
-export const FN_VERSION = "3.0.0-alpha.3.4"; // CHANGE 2026-10-09 F03-MAIL-03: subject pre-encoded; F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
+export const FN_VERSION = "3.0.0-alpha.3.5"; // CHANGE 2026-10-09 F03-MAIL-04: own MIME+SMTP (denomailer removed); F03-MAIL-03: subject pre-encoded; F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
 export const INVITE_TTL_DAYS = 7;
 export const DEFAULT_APP_URL = "https://orsela.github.io/Plan_Travel/app/";
 export const FALLBACK_INVITER = "מנהל המערכת";
@@ -456,40 +456,104 @@ export function supabaseStore(db: SupabaseClient): InviteStore {
   };
 }
 
-/** CHANGE 2026-10-09 F03-MAIL-03: the first real invite arrived as raw MIME text in Gmail — denomailer's own encoding of
- *  the Hebrew subject broke the header block. What changed from 3.0.0-alpha.3.3: the subject is now pre-encoded here as
- *  RFC 2047 base64 encoded-words (UTF-8 split on character boundaries, ≤45 bytes each, joined by a space), so the
- *  value handed to denomailer is plain ASCII and it never re-encodes it. ASCII-only subjects pass through unchanged. */
+/** CHANGE 2026-10-09 F03-MAIL-04: our own MIME + SMTP, replacing denomailer. denomailer re-wrapped long header lines
+ *  without folding whitespace, so Gmail showed the whole message as raw text (F03-MAIL-03's pre-encoding did not help).
+ *  What changed from 3.0.0-alpha.3.4: the message is built here with correctly folded RFC 2047 subject words and base64
+ *  bodies (76-char lines), and sent with a minimal SMTP dialogue (EHLO, AUTH PLAIN, MAIL, RCPT, DATA, QUIT). */
+const CRLF = "\r\n";
+function b64Utf8(s: string): string {
+  let bin = "";
+  for (const byte of new TextEncoder().encode(s)) bin += String.fromCharCode(byte);
+  return btoa(bin);
+}
+function wrap76(s: string): string {
+  return s.replace(/.{1,76}/g, (m) => m + CRLF).replace(/\r\n$/, "");
+}
+
+/** Subject header value: ASCII as is; otherwise RFC 2047 base64 words (≤39 UTF-8 bytes each, split on character
+ *  boundaries), folded with CRLF + space so every header line stays short. */
 export function encodeSubjectHeader(subject: string): string {
-  // deno-lint-ignore no-control-regex
   if (/^[\x20-\x7e]*$/.test(subject)) return subject;
   const enc = new TextEncoder();
   const words: string[] = [];
   let chunk = "";
   for (const ch of subject) {
-    if (enc.encode(chunk + ch).length > 45) { words.push(chunk); chunk = ""; }
+    if (enc.encode(chunk + ch).length > 39) { words.push(chunk); chunk = ""; }
     chunk += ch;
   }
   if (chunk) words.push(chunk);
-  return words.map((w) => {
-    let bin = "";
-    for (const byte of enc.encode(w)) bin += String.fromCharCode(byte);
-    return `=?UTF-8?B?${btoa(bin)}?=`;
-  }).join(" ");
+  return words.map((w) => `=?UTF-8?B?${b64Utf8(w)}?=`).join(CRLF + " ");
+}
+
+export function buildMime(p: { from: string; fromName: string; to: string; subject: string; text: string; html: string; date: Date; id: string }): string {
+  const boundary = `pt-${p.id.replace(/-/g, "").slice(0, 24)}`; // short: keeps the Content-Type line under 78 chars
+  const domain = p.from.split("@")[1] || "plan-travel";
+  const headers = [
+    `From: "${p.fromName}" <${p.from}>`,
+    `To: <${p.to}>`,
+    `Subject: ${encodeSubjectHeader(p.subject)}`,
+    `Date: ${p.date.toUTCString()}`,
+    `Message-ID: <${p.id}@${domain}>`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ];
+  const part = (type: string, body: string) =>
+    [`--${boundary}`, `Content-Type: ${type}; charset=UTF-8`, "Content-Transfer-Encoding: base64", "", wrap76(b64Utf8(body))].join(CRLF);
+  return headers.join(CRLF) + CRLF + CRLF + part("text/plain", p.text) + CRLF + part("text/html", p.html) + CRLF + `--${boundary}--` + CRLF;
+}
+
+export type SmtpConn = { read(b: Uint8Array): Promise<number | null>; write(b: Uint8Array): Promise<number>; close(): void };
+
+/** Minimal SMTP client (implicit TLS on 465 in production; any connection in tests). Throws Error("SMTP <code> …")
+ *  on an unexpected reply; the reply text never contains the password. */
+export async function smtpSend(conn: SmtpConn, o: { user: string; pass: string; from: string; to: string; data: string }): Promise<void> {
+  const enc = new TextEncoder(), dec = new TextDecoder();
+  let buf = "";
+  async function reply(): Promise<{ code: number; text: string }> {
+    for (;;) {
+      const lines = buf.split(CRLF);
+      for (let i = 0; i < lines.length - 1; i++) {
+        if (/^\d{3} /.test(lines[i]) || /^\d{3}$/.test(lines[i])) {
+          const text = lines.slice(0, i + 1).join("\n");
+          buf = lines.slice(i + 1).join(CRLF);
+          return { code: Number(lines[i].slice(0, 3)), text };
+        }
+      }
+      const chunk = new Uint8Array(4096);
+      const n = await conn.read(chunk);
+      if (n === null) throw new Error("SMTP connection closed");
+      buf += dec.decode(chunk.subarray(0, n), { stream: true });
+    }
+  }
+  async function writeAll(bytes: Uint8Array) { // a TLS write may be partial: loop until every byte is sent
+    let off = 0;
+    while (off < bytes.length) off += await conn.write(bytes.subarray(off));
+  }
+  async function expect(ok: number[], cmd?: string) {
+    if (cmd !== undefined) await writeAll(enc.encode(cmd + CRLF));
+    const r = await reply();
+    if (!ok.includes(r.code)) throw new Error(`SMTP ${r.code} ${r.text.slice(0, 200)}`);
+  }
+  try {
+    await expect([220]);
+    await expect([250], "EHLO plan-travel");
+    await expect([235], "AUTH PLAIN " + b64Utf8(`\u0000${o.user}\u0000${o.pass}`));
+    await expect([250], `MAIL FROM:<${o.from}>`);
+    await expect([250, 251], `RCPT TO:<${o.to}>`);
+    await expect([354], "DATA");
+    const body = o.data.replace(/\r\n\./g, "\r\n..").replace(/^\./, "..");
+    await expect([250], body + CRLF + ".");
+    try { await conn.write(enc.encode("QUIT" + CRLF)); } catch { /* ignore */ }
+  } finally {
+    try { conn.close(); } catch { /* already closed */ }
+  }
 }
 
 export function gmailSender(user: string, appPassword: string): (m: MailMessage) => Promise<void> {
   return async (m) => {
-    const client = new SMTPClient({
-      connection: { hostname: "smtp.gmail.com", port: 465, tls: true, auth: { username: user, password: appPassword } },
-    });
-    try {
-      await client.send({ from: `"${FROM_NAME}" <${user}>`, to: m.to, subject: encodeSubjectHeader(m.subject), content: m.text, html: m.html }); // F03-MAIL-03
-    } finally {
-      try {
-        await client.close();
-      } catch { /* connection already closed */ }
-    }
+    const data = buildMime({ from: user, fromName: FROM_NAME, to: m.to, subject: m.subject, text: m.text, html: m.html, date: new Date(), id: crypto.randomUUID() });
+    const conn = await Deno.connectTls({ hostname: "smtp.gmail.com", port: 465 });
+    await smtpSend(conn, { user, pass: appPassword, from: user, to: m.to, data });
   };
 }
 
