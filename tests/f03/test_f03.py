@@ -61,7 +61,7 @@ ALPHA2_REF = os.environ.get("ALPHA2_REF", "9b8151b")
 PT_URL, PT_KEY = f02.PT_URL, f02.PT_KEY
 FN_URL = PT_URL + "/functions/v1/invite-manager"
 PROD_APP_URL = "https://orsela.github.io/Plan_Travel/app/"
-VERSION = "3.0.0-alpha.3.1"
+VERSION = "3.0.0-alpha.3.2"
 PROTECTED = f02.PROTECTED
 VIEWPORT = f02.VIEWPORT
 HEADFUL = os.environ.get("QA_HEADFUL") == "1"
@@ -1869,3 +1869,22 @@ def test_harness_fake_invite_manager_semantics():
     be.invites[r["invite_id"]]["expires_at"] = iso(FIXED_NOW - DAY)
     s, r2 = be._invite_manager(tok, {"action": "create", "email": "a@b.co"})
     assert s == 200
+
+
+def test_ac10_invite_link_while_app_open(env):
+    """CHANGE 2026-10-09 F03-LAND-02 (regression from Or's phone): the app is already open on the trip and the invite
+    link is opened in the same window (only the #hash changes) → the landing page must appear, not the trip."""
+    be = env.backend
+    iid, token = be.add_invite("dana@example.com", "יפן 2027", inviter="אור")
+    tid, dev = boot(env, role="manager")
+    page = dev.page
+    try:
+        page.evaluate("(t)=>{location.hash='#invite='+t}", token)
+    except Exception:
+        pass  # the page reloads itself on the hash change (that is the fix) — the evaluate context may die
+    page.wait_for_timeout(1500)
+    page.wait_for_load_state("load")
+    state = wait_landing(page)
+    assert state == "land_ok", "landing not shown after a hash-only navigation (state=%s, text=%r)" % (state, body_text(page)[:200])
+    assert be.fn("check"), "invite-manager check not called"
+    assert "#invite=" not in page.url, "token left in the address bar: %r" % page.url
