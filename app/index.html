@@ -21,7 +21,7 @@ if('serviceWorker' in navigator){
 <!-- CHANGE 2026-09-30 VISITS-01: title version bumped to v2.9.0 (it had been left at v2.4.8 since that release). CHANGE 2026-09-30 TRAVEL-CHAT-01: bumped to v2.10.0. CHANGE 2026-09-30 TRAVEL-CHAT-02: bumped to v2.10.1. CHANGE 2026-09-30 MAPMODE-FIX-01: bumped to v2.10.2. CHANGE 2026-09-30 CHECKIN-01: bumped to v2.11.0. CHANGE 2026-09-30 WAYPOINT-FIX-01: bumped to v2.11.1. CHANGE 2026-09-30 PERF-01/SYNC-MERGE-01: bumped to v2.11.2. CHANGE 2026-09-30 VAULT-OFFLINE-01/VAULT-DRIVE-01/APP-OFFLINE-01: bumped to v2.12.0. CHANGE 2026-09-30 QUICK-EXP-01/HOME-MIN-01: bumped to v2.13.0. CHANGE 2026-10-01 UI-KIT-01/FLIGHT-CARD-01: bumped to v2.14.0. CHANGE 2026-10-02 DAY-PICKER-01/EDIT-MENU-01: bumped to v2.15.0. CHANGE 2026-10-02 HOME-EDIT-01: bumped to v2.15.1. CHANGE 2026-10-04 DAY-TODAY-01: bumped to v2.15.2. -->
 <!-- CHANGE 2026-10-04 F02-VER-02: title version v2.15.2 -> v3.0.0-alpha.2 (Plan_Travel F02: same app on the plan-travel backend). -->
 <!-- CHANGE 2026-10-05 F03-VER-02: title version v3.0.0-alpha.2 -> v3.0.0-alpha.3 (Plan_Travel F03: super-admin invites a manager). -->
-<title>Vietnam Travel Planner — ויאטנם 2026 · v3.0.0-alpha.3 (Plan_Travel)</title>
+<title>Vietnam Travel Planner — ויאטנם 2026 · v3.0.0-alpha.3.1 (Plan_Travel)</title>
 <!-- CHANGE 2026-09-30 PERF-01 (v2.11.2): xlsx.full.min.js (~900KB) is no longer loaded here on every start; ensureXLSX() in the main script loads it only when Excel backup/import is used. -->
 <script>
 /* CHANGE 2026-10-04 F02-FLAG-01: F02 flags — top-level consts in their own classic script, placed before the F02 gate
@@ -417,6 +417,10 @@ async function refreshAccount(){
 function linkErr(e){
  if(!online())return ERR_HE.offline;
  const code=String(e&&(e.code||e.error_code)||''),msg=String(e&&e.message||'').toLowerCase(),st=Number(e&&e.status)||0;
+ /* CHANGE 2026-10-09 F03-LINK-02: a server-side failure (HTTP 5xx, e.g. the SMTP login refused by Gmail) was shown as
+    "no connection" on Or's phone. What changed from 3.0.0-alpha.3: 5xx (and AuthRetryableFetchError that carries a 5xx
+    status) now shows a sending-failed message; "offline" only when there is no status at all. */
+ if(st>=500)return'שליחת המייל נכשלה בצד השרת. נסו שוב בעוד כמה דקות.';
  if(e&&(e.name==='AuthRetryableFetchError'||st===0)&&!code)return ERR_HE.offline;
  if(st===429||/rate_limit|over_email_send_rate_limit|over_request_rate_limit/.test(code)||/rate limit|too many/.test(msg))return'נשלחו יותר מדי מיילים. נסו שוב בעוד כמה דקות.';
  if(/email_exists|user_already_exists|identity_already_exists/.test(code)||/already (been )?registered|already exists|already in use/.test(msg))return'המייל הזה כבר מקושר לחשבון אחר.';
@@ -706,7 +710,7 @@ html.pt-gate body>*:not(#ptGate){display:none!important}
 (function(){
 'use strict';
 /* CHANGE 2026-10-04 F02-FLAG-01: STORAGE_BACKEND and CHAT_FEATURE are read from the top-level flags script above. */
-const PT_VERSION='3.0.0-alpha.3';   /* CHANGE 2026-10-05 F03-VER-03: was '3.0.0-alpha.2' (window.__PT.version reports the app version) */
+const PT_VERSION='3.0.0-alpha.3.1'; /* CHANGE 2026-10-09 F03-LINK-02: was '3.0.0-alpha.3' */   /* CHANGE 2026-10-05 F03-VER-03: was '3.0.0-alpha.2' (window.__PT.version reports the app version) */
 const PT_SUPABASE_URL='https://zwufpxnioqaweobnvffs.supabase.co';
 const PT_SUPABASE_KEY='sb_publishable_Atuc7ybYTF2o7ujCJBjKjA_So_TbaV8';
 const PT_AUTH_KEY_PREFIX='sb-zwufpxnioqaweobnvffs-';   /* supabase-js default storageKey = sb-<ref>-auth-token */
@@ -5244,7 +5248,7 @@ if($('importExcelInput')){
       documents are marked as unavailable offline. A "גרסה חדשה זמינה · רענון" card appears when a newer version is
       published while the app is open (checked every 10 minutes and when the app comes back to the foreground).
    Revert: VAULT_IDB='off' (localStorage again), APP_UPDATE_CHECK='off'. */
-const APP_VERSION='3.0.0-alpha.3'; /* CHANGE 2026-10-05 F03-VER-01: bumped 3.0.0-alpha.2 -> 3.0.0-alpha.3 (Plan_Travel F03). */ /* CHANGE 2026-10-04 F02-VER-01: bumped 2.15.2 -> 3.0.0-alpha.2 (Plan_Travel F02; the update check now fetches this app's own path). */ /* CHANGE 2026-09-30 v2.13.0: bumped with QUICK-EXP-01/HOME-MIN-01 (drives the new-version card). CHANGE 2026-10-01 v2.14.0: bumped with UI-KIT-01/FLIGHT-CARD-01. CHANGE 2026-10-02 v2.15.0: bumped with DAY-PICKER-01/EDIT-MENU-01. CHANGE 2026-10-02 v2.15.1: bumped with HOME-EDIT-01. CHANGE 2026-10-04 v2.15.2: bumped with DAY-TODAY-01 */
+const APP_VERSION='3.0.0-alpha.3.1'; /* CHANGE 2026-10-09 F03-LINK-02: bumped 3.0.0-alpha.3 -> 3.0.0-alpha.3.1 (link-email error message fix). */ /* CHANGE 2026-10-05 F03-VER-01: bumped 3.0.0-alpha.2 -> 3.0.0-alpha.3 (Plan_Travel F03). */ /* CHANGE 2026-10-04 F02-VER-01: bumped 2.15.2 -> 3.0.0-alpha.2 (Plan_Travel F02; the update check now fetches this app's own path). */ /* CHANGE 2026-09-30 v2.13.0: bumped with QUICK-EXP-01/HOME-MIN-01 (drives the new-version card). CHANGE 2026-10-01 v2.14.0: bumped with UI-KIT-01/FLIGHT-CARD-01. CHANGE 2026-10-02 v2.15.0: bumped with DAY-PICKER-01/EDIT-MENU-01. CHANGE 2026-10-02 v2.15.1: bumped with HOME-EDIT-01. CHANGE 2026-10-04 v2.15.2: bumped with DAY-TODAY-01 */
 const VAULT_IDB='on';
 const APP_UPDATE_CHECK='on';
 const _vxOrigGetDocuments=getDocuments,_vxOrigSaveDocuments=saveDocuments;

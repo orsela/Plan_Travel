@@ -61,7 +61,7 @@ ALPHA2_REF = os.environ.get("ALPHA2_REF", "9b8151b")
 PT_URL, PT_KEY = f02.PT_URL, f02.PT_KEY
 FN_URL = PT_URL + "/functions/v1/invite-manager"
 PROD_APP_URL = "https://orsela.github.io/Plan_Travel/app/"
-VERSION = "3.0.0-alpha.3"
+VERSION = "3.0.0-alpha.3.1"
 PROTECTED = f02.PROTECTED
 VIEWPORT = f02.VIEWPORT
 HEADFUL = os.environ.get("QA_HEADFUL") == "1"
