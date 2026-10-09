@@ -31,5 +31,12 @@
       "purpose": "maskable"
     }
   ],
-  "_change": "CHANGE 2026-10-04 F02-MAN-01: id vietnam-travel-planner -> plan-travel (separate installed app on the shared origin; name/short_name/icons unchanged). Unknown members are ignored by browsers."
+  "_change": "CHANGE 2026-10-04 F02-MAN-01: id vietnam-travel-planner -> plan-travel (separate installed app on the shared origin; name/short_name/icons unchanged). Unknown members are ignored by browsers.",
+  "launch_handler": {
+    "client_mode": [
+      "navigate-existing",
+      "auto"
+    ]
+  },
+  "_change_launch": "CHANGE 2026-10-09 F03-LAND-04: launch_handler navigate-existing — an invite link tapped in Gmail while the installed app was already open only brought the app to the front (no navigation). What changed: one new member; nothing else."
 }

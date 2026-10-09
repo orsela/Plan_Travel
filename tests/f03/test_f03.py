@@ -61,7 +61,7 @@ ALPHA2_REF = os.environ.get("ALPHA2_REF", "9b8151b")
 PT_URL, PT_KEY = f02.PT_URL, f02.PT_KEY
 FN_URL = PT_URL + "/functions/v1/invite-manager"
 PROD_APP_URL = "https://orsela.github.io/Plan_Travel/app/"
-VERSION = "3.0.0-alpha.3.3"
+VERSION = "3.0.0-alpha.3.4"
 PROTECTED = f02.PROTECTED
 VIEWPORT = f02.VIEWPORT
 HEADFUL = os.environ.get("QA_HEADFUL") == "1"
@@ -475,6 +475,9 @@ class Env(f02.Env):
         ctx.clock.set_fixed_time(FIXED_NOW)
         ctx.expose_binding("__fakeBackend", lambda source, msg, _n=name: self.backend.handle(_n, msg))
         ctx.add_init_script(f02.WATCH_JS)
+        # CHANGE 2026-10-09 F03-LAND-04: a minimal Launch Handler API stand-in (window.launchQueue); the app registers a
+        # consumer, tests trigger it via window.__qaLaunchConsumer.
+        ctx.add_init_script("try{Object.defineProperty(window,'launchQueue',{configurable:true,value:{setConsumer:function(c){window.__qaLaunchConsumer=c}}})}catch(e){}")
         page = ctx.new_page()
         d = F03Device(self, name, ctx, page, conf)
         ctx.route("**/*", lambda route, request, _d=d: self._route3(_d, route, request))
@@ -1902,3 +1905,22 @@ def test_ac10_invite_link_encoded_and_query(env):
         state = wait_landing(dev.page)
         assert state == "land_ok", "variant %r: landing not shown (state=%s, text=%r)" % (variant, state, body_text(dev.page)[:150])
         assert "invite" not in dev.page.url, "variant %r: address bar not cleaned: %r" % (variant, dev.page.url)
+
+
+def test_ac10_invite_via_launch_queue(env):
+    """CHANGE 2026-10-09 F03-LAND-04: installed app already open; the OS hands the invite link to it through the Launch
+    Handler API (launchQueue) instead of navigating → the window must go to the landing page."""
+    be = env.backend
+    iid, token = be.add_invite("lq@example.com", "יפן 2027", inviter="אור")
+    tid, dev = boot(env, role="manager")
+    page = dev.page
+    url = page.url.split("#")[0].split("?")[0] + "?invite=1#invite=" + token
+    has = page.evaluate("()=>typeof window.__qaLaunchConsumer+'|'+typeof window.launchQueue+'|'+(window.launchQueue&&typeof window.launchQueue.setConsumer)")
+    assert has.startswith("function"), "app did not register a launchQueue consumer (%r)" % has
+    try:
+        page.evaluate("(u)=>{window.__qaLaunchConsumer({targetURL:u})}", url)
+    except Exception:
+        pass
+    page.wait_for_timeout(1500)
+    page.wait_for_load_state("load")
+    assert wait_landing(page) == "land_ok", "landing not shown after a launchQueue launch"
