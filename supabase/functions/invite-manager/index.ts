@@ -1,4 +1,4 @@
-// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.3 · F03
+// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.4 · F03
 // CHANGE 2026-10-05 F03-FN-01: new file (no previous version). Super-admin manager invites: actions create / resend /
 //   revoke / check (docs/F03_spec.md §3). Runs with the service role; verify_jwt is OFF for this function because
 //   `check` is called by an invitee who has no session — every other action verifies the caller's JWT itself and
@@ -20,7 +20,7 @@ import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 // =====================================================================================================
 // 1. Pure helpers
 // =====================================================================================================
-export const FN_VERSION = "3.0.0-alpha.3.3"; // CHANGE 2026-10-09 F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
+export const FN_VERSION = "3.0.0-alpha.3.4"; // CHANGE 2026-10-09 F03-MAIL-03: subject pre-encoded; F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
 export const INVITE_TTL_DAYS = 7;
 export const DEFAULT_APP_URL = "https://orsela.github.io/Plan_Travel/app/";
 export const FALLBACK_INVITER = "מנהל המערכת";
@@ -456,13 +456,35 @@ export function supabaseStore(db: SupabaseClient): InviteStore {
   };
 }
 
+/** CHANGE 2026-10-09 F03-MAIL-03: the first real invite arrived as raw MIME text in Gmail — denomailer's own encoding of
+ *  the Hebrew subject broke the header block. What changed from 3.0.0-alpha.3.3: the subject is now pre-encoded here as
+ *  RFC 2047 base64 encoded-words (UTF-8 split on character boundaries, ≤45 bytes each, joined by a space), so the
+ *  value handed to denomailer is plain ASCII and it never re-encodes it. ASCII-only subjects pass through unchanged. */
+export function encodeSubjectHeader(subject: string): string {
+  // deno-lint-ignore no-control-regex
+  if (/^[\x20-\x7e]*$/.test(subject)) return subject;
+  const enc = new TextEncoder();
+  const words: string[] = [];
+  let chunk = "";
+  for (const ch of subject) {
+    if (enc.encode(chunk + ch).length > 45) { words.push(chunk); chunk = ""; }
+    chunk += ch;
+  }
+  if (chunk) words.push(chunk);
+  return words.map((w) => {
+    let bin = "";
+    for (const byte of enc.encode(w)) bin += String.fromCharCode(byte);
+    return `=?UTF-8?B?${btoa(bin)}?=`;
+  }).join(" ");
+}
+
 export function gmailSender(user: string, appPassword: string): (m: MailMessage) => Promise<void> {
   return async (m) => {
     const client = new SMTPClient({
       connection: { hostname: "smtp.gmail.com", port: 465, tls: true, auth: { username: user, password: appPassword } },
     });
     try {
-      await client.send({ from: `"${FROM_NAME}" <${user}>`, to: m.to, subject: m.subject, content: m.text, html: m.html });
+      await client.send({ from: `"${FROM_NAME}" <${user}>`, to: m.to, subject: encodeSubjectHeader(m.subject), content: m.text, html: m.html }); // F03-MAIL-03
     } finally {
       try {
         await client.close();

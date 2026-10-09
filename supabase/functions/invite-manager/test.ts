@@ -402,3 +402,19 @@ Deno.test("bad requests: invalid JSON / unknown action → 400 invalid_request; 
   eq((await s.call([1, 2], JWT.admin)).body.error, "invalid_request");
   assert(!s.logs.some((l) => l.includes("Bearer") || l.includes("jwt-admin")));
 });
+
+// CHANGE 2026-10-09 F03-MAIL-03: the subject handed to the mailer is ASCII-only RFC 2047 and decodes back exactly.
+Deno.test("F03-MAIL-03 encodeSubjectHeader: ASCII-only, decodes to the original, short words", async () => {
+  const { encodeSubjectHeader, EMAIL_SUBJECT } = await import("./index.ts");
+  const h = encodeSubjectHeader(EMAIL_SUBJECT);
+  if (!/^[\x20-\x7e]+$/.test(h)) throw new Error("not ASCII: " + h);
+  const words = h.split(" ");
+  const dec = words.map((w) => {
+    const m = /^=\?UTF-8\?B\?([A-Za-z0-9+/=]+)\?=$/.exec(w);
+    if (!m) throw new Error("bad word " + w);
+    if (w.length > 75) throw new Error("word too long " + w.length);
+    return new TextDecoder().decode(Uint8Array.from(atob(m[1]), (c) => c.charCodeAt(0)));
+  }).join("");
+  if (dec !== EMAIL_SUBJECT) throw new Error("roundtrip: " + dec);
+  if (encodeSubjectHeader("Hello") !== "Hello") throw new Error("ascii changed");
+});
