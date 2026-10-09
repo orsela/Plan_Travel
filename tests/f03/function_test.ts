@@ -232,7 +232,7 @@ t("FN-11 create: email content (subject, from name, RTL HTML + text, link, expir
   ok(m.html && /dir=["']?rtl/i.test(m.html), "HTML part missing or not RTL");
   ok(m.text && m.text.length > 20, "plain-text part missing");
   ok(`${m.html}${m.text}`.includes(`${APP_URL}#invite=${token}`), "link is not <APP_URL>#invite=<token>");
-  ok(m.html!.includes("פתיחת ההזמנה"), "button 'פתיחת ההזמנה' missing");
+  ok(m.html!.includes("קבלת ההזמנה והקמת הטיול"), "button 'קבלת ההזמנה והקמת הטיול' missing (CHANGE 2026-10-09 F03-MAIL-02: button text approved by Or)");
   ok(m.html!.includes("יפן 2027") && m.html!.includes("אור QA"), "draft name / inviter missing");
   ok(/\d{2}\/\d{2}\/\d{4}/.test(m.html!), "expiry date missing");
   ok(!/<img\b[^>]*(width=["']?1\b|height=["']?1\b)/i.test(m.html!) && !/<img\b/i.test(m.html!), "image / tracking pixel in the email");

@@ -168,7 +168,7 @@ Deno.test("email: RTL html + text, subject, link, expiry, escaping, no images/pi
   eq(m.subject, "הוזמנת לנהל טיול ב-Plan_Travel");
   assert(m.html.includes('dir="rtl"'));
   assert(m.html.includes("יפן &lt;2027&gt;") && !m.html.includes("<2027>"), "escaping");
-  assert(m.html.includes(">פתיחת ההזמנה</a>") && m.html.includes(APP + "#invite=T"));
+  assert(m.html.includes(">קבלת ההזמנה והקמת הטיול</a>") && m.html.includes(APP + "#invite=T"));
   assert(m.text.includes(APP + "#invite=T") && m.text.includes("10/10/2026") && m.html.includes("10/10/2026"));
   assert(m.text.includes("אפשר להתעלם מהמייל"));
   assert(!/<img|background-image|url\(/i.test(m.html), "no tracking pixels / remote images");

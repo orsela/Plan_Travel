@@ -1,4 +1,4 @@
-// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.2 · F03
+// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.3 · F03
 // CHANGE 2026-10-05 F03-FN-01: new file (no previous version). Super-admin manager invites: actions create / resend /
 //   revoke / check (docs/F03_spec.md §3). Runs with the service role; verify_jwt is OFF for this function because
 //   `check` is called by an invitee who has no session — every other action verifies the caller's JWT itself and
@@ -20,7 +20,7 @@ import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 // =====================================================================================================
 // 1. Pure helpers
 // =====================================================================================================
-export const FN_VERSION = "3.0.0-alpha.3.2"; // CHANGE 2026-10-09 F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
+export const FN_VERSION = "3.0.0-alpha.3.3"; // CHANGE 2026-10-09 F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
 export const INVITE_TTL_DAYS = 7;
 export const DEFAULT_APP_URL = "https://orsela.github.io/Plan_Travel/app/";
 export const FALLBACK_INVITER = "מנהל המערכת";
@@ -112,33 +112,57 @@ export interface MailMessage {
   html: string;
 }
 
-/** Invite email (artboard F03_Email): RTL HTML + plain text, no tracking pixels, no remote images. */
+/** Invite email (artboard F03_Email).
+ *  CHANGE 2026-10-09 F03-MAIL-02: redesigned per Or's approval (2026-10-09): clear headline with inviter + group name,
+ *  one full-width button "קבלת ההזמנה והקמת הטיול", expiry under the button, a 3-step "what happens next", and a
+ *  copy-paste fallback link. What changed from 3.0.0-alpha.3.2: copy and layout only (RTL HTML + plain text, no tracking
+ *  pixels, no remote images); the link, expiry and data are unchanged. */
+export const BUTTON_TEXT = "קבלת ההזמנה והקמת הטיול";
 export function renderInviteEmail(p: { to: string; inviter: string; draftName: string | null; link: string; expiresAt: string }): MailMessage {
   const exp = fmtDate(p.expiresAt);
-  const group = p.draftName ? `הקבוצה "${p.draftName}"` : "קבוצה חדשה";
-  const groupHtml = p.draftName ? `הקבוצה <b>"${htmlEscape(p.draftName)}"</b>` : "קבוצה חדשה";
+  const name = p.draftName ? `"${p.draftName}"` : "";
+  const headline = p.draftName ? `${p.inviter} מזמין אותך לנהל את הטיול ${name}` : `${p.inviter} מזמין אותך לנהל טיול חדש`;
+  const headlineHtml = p.draftName
+    ? `${htmlEscape(p.inviter)} מזמין אותך לנהל את הטיול <span style="white-space:nowrap">"${htmlEscape(p.draftName)}"</span>`
+    : `${htmlEscape(p.inviter)} מזמין אותך לנהל טיול חדש`;
+  const steps = ["מתחברים עם כתובת המייל הזו", "ממלאים שם, תאריכים ומדינות", "שולחים לחברים קישור הצטרפות בווטסאפ"];
   const text = [
-    "שלום,",
+    "הזמנה אישית",
+    headline,
     "",
-    `${p.inviter} הזמין אותך להיות מנהל/ת ${group} ב-Plan_Travel. בתור מנהל/ת תקים/י את הטיול, תזמין/י את החברים ותחליט/י מי עורך ומי צופה.`,
-    "",
-    "פתיחת ההזמנה:",
+    "לחיצה אחת על הקישור, והקמת הטיול מתחילה:",
     p.link,
+    `בתוקף עד ${exp}`,
     "",
-    `הקישור אישי, בתוקף עד ${exp}, ומיועד לכתובת הזו בלבד. אם לא ציפית להזמנה, אפשר להתעלם מהמייל.`,
+    "מה יקרה אחרי הלחיצה:",
+    ...steps.map((t, i) => `${i + 1}. ${t}`),
+    "",
+    "הקישור אישי ומיועד לכתובת הזו בלבד. אם לא ציפית להזמנה, אפשר להתעלם מהמייל.",
     "",
     "נשלח ממערכת Plan_Travel. אין להשיב למייל זה.",
   ].join("\n");
+  const L = htmlEscape(p.link);
+  const stepRows = steps.map((t, i) =>
+    `<tr><td style="padding:3px 0 3px 8px;vertical-align:top;color:#0f6b4f;font-weight:800">${i + 1}</td><td style="padding:3px 0">${htmlEscape(t)}</td></tr>`
+  ).join("");
   const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${htmlEscape(EMAIL_SUBJECT)}</title></head>` +
-    `<body dir="rtl" style="margin:0;padding:16px 12px;background:#eceae3;color:#17211b;font-family:'Segoe UI',Arial,sans-serif">` +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden" dir="rtl">` +
-    `<tr><td style="background:#0f6b4f;color:#ffffff;padding:22px 20px;text-align:right"><div style="font-size:20px;font-weight:900">Plan_Travel</div><div style="font-size:12.5px;opacity:.9">מתכננים יחד, מטיילים יחד</div></td></tr>` +
-    `<tr><td style="padding:22px 20px;text-align:right">` +
-    `<h1 style="margin:0 0 14px;font-size:19px">שלום,</h1>` +
-    `<p style="margin:0 0 14px;font-size:14.5px;line-height:1.6">${htmlEscape(p.inviter)} הזמין אותך להיות מנהל/ת ${groupHtml}. בתור מנהל/ת תקים/י את הטיול, תזמין/י את החברים ותחליט/י מי עורך ומי צופה.</p>` +
-    `<p style="margin:0 0 14px;text-align:center"><a href="${htmlEscape(p.link)}" style="display:inline-block;min-height:48px;line-height:48px;padding:0 26px;border-radius:14px;background:#0f6b4f;color:#ffffff;font-size:15px;font-weight:800;text-decoration:none">פתיחת ההזמנה</a></p>` +
-    `<p style="margin:0;font-size:12.5px;color:#5f6861;line-height:1.6">הקישור אישי, בתוקף עד ${exp}, ומיועד לכתובת הזו בלבד. אם לא ציפית להזמנה, אפשר להתעלם מהמייל.</p>` +
+    `<body dir="rtl" style="margin:0;padding:16px 12px;background:#eceae3;color:#17211b;font-family:Arial,'Segoe UI',sans-serif">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden" dir="rtl">` +
+    `<tr><td style="background:#0f6b4f;color:#ffffff;padding:20px;text-align:right"><div style="font-size:20px;font-weight:900">Plan_Travel</div><div style="font-size:13px;opacity:.9">מתכננים יחד, מטיילים יחד</div></td></tr>` +
+    `<tr><td style="padding:24px 20px 8px;text-align:right">` +
+    `<div style="font-size:13px;color:#5f6861;margin:0 0 6px">הזמנה אישית</div>` +
+    `<h1 style="margin:0 0 10px;font-size:22px;line-height:1.35">${headlineHtml}</h1>` +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#3a443d">לחיצה אחת על הכפתור, והקמת הטיול מתחילה.</p>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="border-radius:14px;background:#0f6b4f">` +
+    `<a href="${L}" style="display:block;padding:16px 12px;font-size:17px;font-weight:800;color:#ffffff;text-decoration:none;text-align:center">${BUTTON_TEXT}</a>` +
+    `</td></tr></table>` +
+    `<p style="margin:10px 0 0;font-size:12.5px;color:#5f6861;text-align:center">בתוקף עד ${exp}</p>` +
     `</td></tr>` +
+    `<tr><td style="padding:18px 20px 6px;text-align:right"><div style="font-size:13.5px;font-weight:800;margin:0 0 8px">מה יקרה אחרי הלחיצה</div>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" style="font-size:13.5px;line-height:1.5;color:#3a443d">${stepRows}</table></td></tr>` +
+    `<tr><td style="padding:16px 20px 20px;text-align:right;font-size:12px;line-height:1.6;color:#5f6861">הכפתור לא עובד? העתיקו את הקישור לדפדפן:<br>` +
+    `<a href="${L}" dir="ltr" style="word-break:break-all;color:#0f6b4f">${L}</a><br><br>` +
+    `הקישור אישי ומיועד לכתובת הזו בלבד. אם לא ציפית להזמנה, אפשר להתעלם מהמייל.</td></tr>` +
     `<tr><td style="border-top:1px solid #efeee8;padding:12px 20px;font-size:11.5px;color:#5f6861;text-align:right">נשלח ממערכת Plan_Travel. אין להשיב למייל זה.</td></tr>` +
     `</table></body></html>`;
   return { to: p.to, subject: EMAIL_SUBJECT, text, html };
