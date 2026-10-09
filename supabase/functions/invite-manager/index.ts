@@ -1,4 +1,4 @@
-// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3 · F03
+// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.1 · F03
 // CHANGE 2026-10-05 F03-FN-01: new file (no previous version). Super-admin manager invites: actions create / resend /
 //   revoke / check (docs/F03_spec.md §3). Runs with the service role; verify_jwt is OFF for this function because
 //   `check` is called by an invitee who has no session — every other action verifies the caller's JWT itself and
@@ -20,7 +20,7 @@ import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 // =====================================================================================================
 // 1. Pure helpers
 // =====================================================================================================
-export const FN_VERSION = "3.0.0-alpha.3";
+export const FN_VERSION = "3.0.0-alpha.3.1"; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
 export const INVITE_TTL_DAYS = 7;
 export const DEFAULT_APP_URL = "https://orsela.github.io/Plan_Travel/app/";
 export const FALLBACK_INVITER = "מנהל המערכת";
@@ -435,7 +435,10 @@ export function gmailSender(user: string, appPassword: string): (m: MailMessage)
   };
 }
 
-if (import.meta.main) {
+// CHANGE 2026-10-09 F03-FN-02: the production wiring moved into an exported startServer() so the deployed entry point
+//   (main.ts) can start it explicitly; import.meta.main is not guaranteed true inside the Supabase Edge Runtime.
+//   What changed from the 2026-10-05 version: the same code, now wrapped in a function; behavior unchanged.
+export function startServer(): void {
   const env = (k: string) => Deno.env.get(k) || "";
   const url = env("SUPABASE_URL");
   const key = env("PT_SERVICE_KEY") || env("SUPABASE_SERVICE_ROLE_KEY");
@@ -455,3 +458,5 @@ if (import.meta.main) {
   });
   Deno.serve(handler);
 }
+
+if (import.meta.main) startServer();
