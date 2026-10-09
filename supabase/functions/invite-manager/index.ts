@@ -1,4 +1,4 @@
-// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.5 · F03
+// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.6 · F03
 // CHANGE 2026-10-05 F03-FN-01: new file (no previous version). Super-admin manager invites: actions create / resend /
 //   revoke / check (docs/F03_spec.md §3). Runs with the service role; verify_jwt is OFF for this function because
 //   `check` is called by an invitee who has no session — every other action verifies the caller's JWT itself and
@@ -20,7 +20,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.4
 // =====================================================================================================
 // 1. Pure helpers
 // =====================================================================================================
-export const FN_VERSION = "3.0.0-alpha.3.5"; // CHANGE 2026-10-09 F03-MAIL-04: own MIME+SMTP (denomailer removed); F03-MAIL-03: subject pre-encoded; F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
+export const FN_VERSION = "3.0.0-alpha.3.6"; // CHANGE 2026-10-09 F03-LAND-03: ?invite=1 in the link; F03-MAIL-04: own MIME+SMTP (denomailer removed); F03-MAIL-03: subject pre-encoded; F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
 export const INVITE_TTL_DAYS = 7;
 export const DEFAULT_APP_URL = "https://orsela.github.io/Plan_Travel/app/";
 export const FALLBACK_INVITER = "מנהל המערכת";
@@ -100,9 +100,12 @@ export function fmtDate(iso: string | Date): string {
   return `${g("day")}/${g("month")}/${g("year")}`;
 }
 
+/** CHANGE 2026-10-09 F03-LAND-03: the link now carries ?invite=1 before the hash. What changed from 3.0.0-alpha.3.5: with
+ *  only a #hash, tapping the button while the app was already open did not reload the page on Or's phone; a different
+ *  query forces a full page load. The token stays in the hash (never sent to the web server); the app removes both. */
 export function inviteLink(appUrl: string, token: string): string {
-  const base = appUrl.split("#")[0];
-  return `${base}#invite=${token}`;
+  const base = appUrl.split("#")[0].split("?")[0];
+  return `${base}?invite=1#invite=${token}`;
 }
 
 export interface MailMessage {

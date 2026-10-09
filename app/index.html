@@ -21,7 +21,7 @@ if('serviceWorker' in navigator){
 <!-- CHANGE 2026-09-30 VISITS-01: title version bumped to v2.9.0 (it had been left at v2.4.8 since that release). CHANGE 2026-09-30 TRAVEL-CHAT-01: bumped to v2.10.0. CHANGE 2026-09-30 TRAVEL-CHAT-02: bumped to v2.10.1. CHANGE 2026-09-30 MAPMODE-FIX-01: bumped to v2.10.2. CHANGE 2026-09-30 CHECKIN-01: bumped to v2.11.0. CHANGE 2026-09-30 WAYPOINT-FIX-01: bumped to v2.11.1. CHANGE 2026-09-30 PERF-01/SYNC-MERGE-01: bumped to v2.11.2. CHANGE 2026-09-30 VAULT-OFFLINE-01/VAULT-DRIVE-01/APP-OFFLINE-01: bumped to v2.12.0. CHANGE 2026-09-30 QUICK-EXP-01/HOME-MIN-01: bumped to v2.13.0. CHANGE 2026-10-01 UI-KIT-01/FLIGHT-CARD-01: bumped to v2.14.0. CHANGE 2026-10-02 DAY-PICKER-01/EDIT-MENU-01: bumped to v2.15.0. CHANGE 2026-10-02 HOME-EDIT-01: bumped to v2.15.1. CHANGE 2026-10-04 DAY-TODAY-01: bumped to v2.15.2. -->
 <!-- CHANGE 2026-10-04 F02-VER-02: title version v2.15.2 -> v3.0.0-alpha.2 (Plan_Travel F02: same app on the plan-travel backend). -->
 <!-- CHANGE 2026-10-05 F03-VER-02: title version v3.0.0-alpha.2 -> v3.0.0-alpha.3 (Plan_Travel F03: super-admin invites a manager). -->
-<title>Vietnam Travel Planner — ויאטנם 2026 · v3.0.0-alpha.3.2 (Plan_Travel)</title>
+<title>Vietnam Travel Planner — ויאטנם 2026 · v3.0.0-alpha.3.3 (Plan_Travel)</title>
 <!-- CHANGE 2026-09-30 PERF-01 (v2.11.2): xlsx.full.min.js (~900KB) is no longer loaded here on every start; ensureXLSX() in the main script loads it only when Excel backup/import is used. -->
 <script>
 /* CHANGE 2026-10-04 F02-FLAG-01: F02 flags — top-level consts in their own classic script, placed before the F02 gate
@@ -191,7 +191,11 @@ let inviteSeen=false,inviteToken='',authNotice=null;
 function cleanUrl(){try{history.replaceState(history.state,'',location.pathname+location.search)}catch{}}
 try{
  const h=String(location.hash||'');
- if(h.indexOf('#invite=')===0){inviteSeen=true;inviteToken=h.slice(8);cleanUrl()}
+ /* CHANGE 2026-10-09 F03-LAND-03: the invite link from Gmail did nothing on Or's phone. What changed from 3.0.0-alpha.3.2:
+    the hash is percent-decoded before matching (a redirector may send #invite%3D…), and the email link now carries
+    ?invite=1 (forces a full page load even when the app is already open); that marker is removed with the hash. */
+ let hd=h;try{hd=decodeURIComponent(h)}catch{}
+ if(hd.indexOf('#invite=')===0){inviteSeen=true;inviteToken=hd.slice(8).trim();try{history.replaceState(history.state,'',location.pathname)}catch{}}
  else if(/^#(.*&)?(access_token|error|error_code|error_description|message)=/.test(h)){
   let p=null;try{p=new URLSearchParams(h.slice(1))}catch{}
   authNotice=p&&(p.get('error')||p.get('error_code')||p.get('error_description'))?'error':(p&&p.get('access_token')?'linked':'pending');
@@ -201,7 +205,7 @@ try{
 /* CHANGE 2026-10-09 F03-LAND-02: tapping the invite button in Gmail while the app was already open (installed app or an
    open tab) only changed the #hash, so nothing happened (no reload, the landing page is chosen at boot only). What
    changed from 3.0.0-alpha.3.1: a hash change to #invite=… now reloads the page, so the normal landing flow runs. */
-window.addEventListener('hashchange',()=>{if(String(location.hash||'').indexOf('#invite=')===0){try{location.reload()}catch{}}});
+window.addEventListener('hashchange',()=>{let x=String(location.hash||'');try{x=decodeURIComponent(x)}catch{}if(x.indexOf('#invite=')===0){try{location.reload()}catch{}}});
 
 /* ---------------------------------------------------------------------------------------------------------
    small helpers
@@ -714,7 +718,7 @@ html.pt-gate body>*:not(#ptGate){display:none!important}
 (function(){
 'use strict';
 /* CHANGE 2026-10-04 F02-FLAG-01: STORAGE_BACKEND and CHAT_FEATURE are read from the top-level flags script above. */
-const PT_VERSION='3.0.0-alpha.3.2'; /* CHANGE 2026-10-09 F03-LAND-02: was '3.0.0-alpha.3.1'; F03-LINK-02: was '3.0.0-alpha.3' */   /* CHANGE 2026-10-05 F03-VER-03: was '3.0.0-alpha.2' (window.__PT.version reports the app version) */
+const PT_VERSION='3.0.0-alpha.3.3'; /* CHANGE 2026-10-09 F03-LAND-03: was '3.0.0-alpha.3.2'; F03-LAND-02: was '3.0.0-alpha.3.1'; F03-LINK-02: was '3.0.0-alpha.3' */   /* CHANGE 2026-10-05 F03-VER-03: was '3.0.0-alpha.2' (window.__PT.version reports the app version) */
 const PT_SUPABASE_URL='https://zwufpxnioqaweobnvffs.supabase.co';
 const PT_SUPABASE_KEY='sb_publishable_Atuc7ybYTF2o7ujCJBjKjA_So_TbaV8';
 const PT_AUTH_KEY_PREFIX='sb-zwufpxnioqaweobnvffs-';   /* supabase-js default storageKey = sb-<ref>-auth-token */
@@ -5252,7 +5256,7 @@ if($('importExcelInput')){
       documents are marked as unavailable offline. A "גרסה חדשה זמינה · רענון" card appears when a newer version is
       published while the app is open (checked every 10 minutes and when the app comes back to the foreground).
    Revert: VAULT_IDB='off' (localStorage again), APP_UPDATE_CHECK='off'. */
-const APP_VERSION='3.0.0-alpha.3.2'; /* CHANGE 2026-10-09 F03-LAND-02: bumped 3.0.0-alpha.3.1 -> 3.0.0-alpha.3.2 (invite link opened while the app is already open). */ /* CHANGE 2026-10-09 F03-LINK-02: bumped 3.0.0-alpha.3 -> 3.0.0-alpha.3.1 (link-email error message fix). */ /* CHANGE 2026-10-05 F03-VER-01: bumped 3.0.0-alpha.2 -> 3.0.0-alpha.3 (Plan_Travel F03). */ /* CHANGE 2026-10-04 F02-VER-01: bumped 2.15.2 -> 3.0.0-alpha.2 (Plan_Travel F02; the update check now fetches this app's own path). */ /* CHANGE 2026-09-30 v2.13.0: bumped with QUICK-EXP-01/HOME-MIN-01 (drives the new-version card). CHANGE 2026-10-01 v2.14.0: bumped with UI-KIT-01/FLIGHT-CARD-01. CHANGE 2026-10-02 v2.15.0: bumped with DAY-PICKER-01/EDIT-MENU-01. CHANGE 2026-10-02 v2.15.1: bumped with HOME-EDIT-01. CHANGE 2026-10-04 v2.15.2: bumped with DAY-TODAY-01 */
+const APP_VERSION='3.0.0-alpha.3.3'; /* CHANGE 2026-10-09 F03-LAND-03: bumped 3.0.0-alpha.3.2 -> 3.0.0-alpha.3.3 (robust invite link). */ /* CHANGE 2026-10-09 F03-LAND-02: bumped 3.0.0-alpha.3.1 -> 3.0.0-alpha.3.2 (invite link opened while the app is already open). */ /* CHANGE 2026-10-09 F03-LINK-02: bumped 3.0.0-alpha.3 -> 3.0.0-alpha.3.1 (link-email error message fix). */ /* CHANGE 2026-10-05 F03-VER-01: bumped 3.0.0-alpha.2 -> 3.0.0-alpha.3 (Plan_Travel F03). */ /* CHANGE 2026-10-04 F02-VER-01: bumped 2.15.2 -> 3.0.0-alpha.2 (Plan_Travel F02; the update check now fetches this app's own path). */ /* CHANGE 2026-09-30 v2.13.0: bumped with QUICK-EXP-01/HOME-MIN-01 (drives the new-version card). CHANGE 2026-10-01 v2.14.0: bumped with UI-KIT-01/FLIGHT-CARD-01. CHANGE 2026-10-02 v2.15.0: bumped with DAY-PICKER-01/EDIT-MENU-01. CHANGE 2026-10-02 v2.15.1: bumped with HOME-EDIT-01. CHANGE 2026-10-04 v2.15.2: bumped with DAY-TODAY-01 */
 const VAULT_IDB='on';
 const APP_UPDATE_CHECK='on';
 const _vxOrigGetDocuments=getDocuments,_vxOrigSaveDocuments=saveDocuments;

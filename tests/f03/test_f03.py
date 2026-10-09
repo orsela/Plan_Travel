@@ -61,7 +61,7 @@ ALPHA2_REF = os.environ.get("ALPHA2_REF", "9b8151b")
 PT_URL, PT_KEY = f02.PT_URL, f02.PT_KEY
 FN_URL = PT_URL + "/functions/v1/invite-manager"
 PROD_APP_URL = "https://orsela.github.io/Plan_Travel/app/"
-VERSION = "3.0.0-alpha.3.2"
+VERSION = "3.0.0-alpha.3.3"
 PROTECTED = f02.PROTECTED
 VIEWPORT = f02.VIEWPORT
 HEADFUL = os.environ.get("QA_HEADFUL") == "1"
@@ -1888,3 +1888,17 @@ def test_ac10_invite_link_while_app_open(env):
     assert state == "land_ok", "landing not shown after a hash-only navigation (state=%s, text=%r)" % (state, body_text(page)[:200])
     assert be.fn("check"), "invite-manager check not called"
     assert "#invite=" not in page.url, "token left in the address bar: %r" % page.url
+
+
+def test_ac10_invite_link_encoded_and_query(env):
+    """CHANGE 2026-10-09 F03-LAND-03: the email link is APP_URL?invite=1#invite=<token>, and a redirector may percent-encode
+    the '=' in the hash. Both must open the landing and leave a clean address bar."""
+    be = env.backend
+    for n, variant in enumerate(("?invite=1#invite={t}", "#invite%3D{t}")):
+        iid, token = be.add_invite("dana%d@example.com" % n, "יפן 2027", inviter="אור")
+        be.auto_link = None
+        dev = env.new_device("Q%d" % n)
+        dev.goto(APP_PATH + variant.format(t=token), ready=False)
+        state = wait_landing(dev.page)
+        assert state == "land_ok", "variant %r: landing not shown (state=%s, text=%r)" % (variant, state, body_text(dev.page)[:150])
+        assert "invite" not in dev.page.url, "variant %r: address bar not cleaned: %r" % (variant, dev.page.url)

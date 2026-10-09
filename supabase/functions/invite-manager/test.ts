@@ -160,7 +160,7 @@ Deno.test("helpers: email normalization/validation, token format, CORS", async (
   for (const o of ["https://evil.example", "https://orsela.github.io.evil.com", "http://localhost.evil.com", "null"]) {
     eq(corsHeaders(o)["Access-Control-Allow-Origin"], undefined, o);
   }
-  eq(inviteLink(APP + "#x", "TOK"), APP + "#invite=TOK");
+  eq(inviteLink(APP + "#x", "TOK"), APP + "?invite=1#invite=TOK"); // CHANGE 2026-10-09 F03-LAND-03
 });
 
 Deno.test("email: RTL html + text, subject, link, expiry, escaping, no images/pixels", () => {
