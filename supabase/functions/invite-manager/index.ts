@@ -1,4 +1,4 @@
-// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.1 · F03
+// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.2 · F03
 // CHANGE 2026-10-05 F03-FN-01: new file (no previous version). Super-admin manager invites: actions create / resend /
 //   revoke / check (docs/F03_spec.md §3). Runs with the service role; verify_jwt is OFF for this function because
 //   `check` is called by an invitee who has no session — every other action verifies the caller's JWT itself and
@@ -20,7 +20,7 @@ import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 // =====================================================================================================
 // 1. Pure helpers
 // =====================================================================================================
-export const FN_VERSION = "3.0.0-alpha.3.1"; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
+export const FN_VERSION = "3.0.0-alpha.3.2"; // CHANGE 2026-10-09 F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
 export const INVITE_TTL_DAYS = 7;
 export const DEFAULT_APP_URL = "https://orsela.github.io/Plan_Travel/app/";
 export const FALLBACK_INVITER = "מנהל המערכת";
@@ -208,6 +208,14 @@ class HttpError extends Error {
   }
 }
 
+/** CHANGE 2026-10-09 F03-FN-03: safe summary of a mailer error for the logs (name + first 300 chars of the message,
+ *  with anything that looks like an email address masked). */
+export function mailErr(e: unknown): Record<string, unknown> {
+  const name = e instanceof Error ? e.name : typeof e;
+  const msg = String(e instanceof Error ? e.message : e).replace(/[^\s@<>]+@[^\s@<>]+/g, "<addr>").slice(0, 300);
+  return { name, message: msg };
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function makeHandler(deps: Deps): (req: Request) => Promise<Response> {
@@ -270,7 +278,10 @@ export function makeHandler(deps: Deps): (req: Request) => Promise<Response> {
     }
     try {
       await deps.sendMail(renderInviteEmail({ to: email, inviter, draftName: draft, link: inviteLink(deps.appUrl, token), expiresAt: row.expires_at }));
-    } catch (_e) {
+    } catch (e) {
+      // CHANGE 2026-10-09 F03-FN-03: log the mailer's error name/message (never the password, token or address) —
+      //   the first live send failed with no detail. What changed from 3.0.0-alpha.3.1: one log line, same response.
+      deps.log("email_error", mailErr(e));
       await deps.store.deleteById(id); // criterion 9: no row left behind
       throw new HttpError(502, "email_failed");
     }
@@ -299,7 +310,8 @@ export function makeHandler(deps: Deps): (req: Request) => Promise<Response> {
         to: inv.email, inviter: inv.inviter_name || FALLBACK_INVITER, draftName: inv.draft_name,
         link: inviteLink(deps.appUrl, token), expiresAt: expires,
       }));
-    } catch (_e) {
+    } catch (e) {
+      deps.log("email_error", mailErr(e)); // CHANGE 2026-10-09 F03-FN-03 (see actCreate)
       throw new HttpError(502, "email_failed");
     }
     const n = await deps.store.updateOpen(inv.id, {
