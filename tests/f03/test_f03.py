@@ -1924,3 +1924,27 @@ def test_ac10_invite_via_launch_queue(env):
     page.wait_for_timeout(1500)
     page.wait_for_load_state("load")
     assert wait_landing(page) == "land_ok", "landing not shown after a launchQueue launch"
+
+
+def test_ac10_invite_bridge_page():
+    """CHANGE 2026-10-10 F03-LAND-05: /invite/ (outside the installed app's scope) forwards the same tab to
+    /app/?invite=1#invite=<token>; a percent-encoded hash works; a bad hash goes to /app/ with no token."""
+    import http.server, threading, functools
+    from playwright.sync_api import sync_playwright
+    root = str(Path(__file__).resolve().parents[2])
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(http.server.SimpleHTTPRequestHandler, directory=root))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    T = "A" * 20 + "b-_" + "C" * 20
+    try:
+        with sync_playwright() as p:
+            b = p.chromium.launch(); pg = b.new_page()
+            navs = []
+            pg.on("framenavigated", lambda f: navs.append(f.url) if f == pg.main_frame else None)
+            pg.route("**/app/**", lambda r: r.fulfill(body="<html><body>app</body></html>", content_type="text/html"))
+            base = "http://127.0.0.1:%d" % srv.server_address[1]
+            for h, want in [("#invite=" + T, "/app/?invite=1#invite=" + T), ("#invite%3D" + T, "/app/?invite=1#invite=" + T), ("#x", "/app/")]:
+                navs.clear(); pg.goto(base + "/invite/" + h); pg.wait_for_timeout(600)
+                assert navs and navs[-1] == base + want, "bridge %r went to %r" % (h, navs[-1:] )
+            b.close()
+    finally:
+        srv.shutdown()

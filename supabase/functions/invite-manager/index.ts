@@ -1,4 +1,4 @@
-// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.6 · F03
+// Plan_Travel Edge Function `invite-manager` · version 3.0.0-alpha.3.7 · F03
 // CHANGE 2026-10-05 F03-FN-01: new file (no previous version). Super-admin manager invites: actions create / resend /
 //   revoke / check (docs/F03_spec.md §3). Runs with the service role; verify_jwt is OFF for this function because
 //   `check` is called by an invitee who has no session — every other action verifies the caller's JWT itself and
@@ -20,7 +20,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.4
 // =====================================================================================================
 // 1. Pure helpers
 // =====================================================================================================
-export const FN_VERSION = "3.0.0-alpha.3.6"; // CHANGE 2026-10-09 F03-LAND-03: ?invite=1 in the link; F03-MAIL-04: own MIME+SMTP (denomailer removed); F03-MAIL-03: subject pre-encoded; F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
+export const FN_VERSION = "3.0.0-alpha.3.7"; // CHANGE 2026-10-10 F03-LAND-05: link via /invite/ bridge; F03-LAND-03: ?invite=1 in the link; F03-MAIL-04: own MIME+SMTP (denomailer removed); F03-MAIL-03: subject pre-encoded; F03-MAIL-02: redesigned invite email; F03-FN-03: mailer error logging; // CHANGE 2026-10-09 F03-FN-02: bumped for the startServer()/main.ts entry split
 export const INVITE_TTL_DAYS = 7;
 export const DEFAULT_APP_URL = "https://orsela.github.io/Plan_Travel/app/";
 export const FALLBACK_INVITER = "מנהל המערכת";
@@ -103,9 +103,14 @@ export function fmtDate(iso: string | Date): string {
 /** CHANGE 2026-10-09 F03-LAND-03: the link now carries ?invite=1 before the hash. What changed from 3.0.0-alpha.3.5: with
  *  only a #hash, tapping the button while the app was already open did not reload the page on Or's phone; a different
  *  query forces a full page load. The token stays in the hash (never sent to the web server); the app removes both. */
+/** CHANGE 2026-10-10 F03-LAND-05: the link now points to the invite bridge page (/invite/, a sibling of /app/), not into
+ *  /app/. What changed from 3.0.0-alpha.3.6: /app/ is inside the installed app's scope, so Android handed the tap to the
+ *  already-open app, which did not open the invite; /invite/ opens in a browser tab and forwards that tab to
+ *  /app/?invite=1#invite=<token>. An APP_URL that does not end in /app/ keeps the previous direct link. */
 export function inviteLink(appUrl: string, token: string): string {
   const base = appUrl.split("#")[0].split("?")[0];
-  return `${base}?invite=1#invite=${token}`;
+  const bridge = /\/app\/?$/.test(base) ? base.replace(/app\/?$/, "invite/") : null;
+  return bridge ? `${bridge}#invite=${token}` : `${base}?invite=1#invite=${token}`;
 }
 
 export interface MailMessage {
@@ -157,14 +162,14 @@ export function renderInviteEmail(p: { to: string; inviter: string; draftName: s
     `<h1 style="margin:0 0 10px;font-size:22px;line-height:1.35">${headlineHtml}</h1>` +
     `<p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#3a443d">לחיצה אחת על הכפתור, והקמת הטיול מתחילה.</p>` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="border-radius:14px;background:#0f6b4f">` +
-    `<a href="${L}" style="display:block;padding:16px 12px;font-size:17px;font-weight:800;color:#ffffff;text-decoration:none;text-align:center">${BUTTON_TEXT}</a>` +
+    `<a href="${L}" target="_blank" rel="noopener" style="display:block;padding:16px 12px;font-size:17px;font-weight:800;color:#ffffff;text-decoration:none;text-align:center">${BUTTON_TEXT}</a>` +
     `</td></tr></table>` +
     `<p style="margin:10px 0 0;font-size:12.5px;color:#5f6861;text-align:center">בתוקף עד ${exp}</p>` +
     `</td></tr>` +
     `<tr><td style="padding:18px 20px 6px;text-align:right"><div style="font-size:13.5px;font-weight:800;margin:0 0 8px">מה יקרה אחרי הלחיצה</div>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" style="font-size:13.5px;line-height:1.5;color:#3a443d">${stepRows}</table></td></tr>` +
     `<tr><td style="padding:16px 20px 20px;text-align:right;font-size:12px;line-height:1.6;color:#5f6861">הכפתור לא עובד? העתיקו את הקישור לדפדפן:<br>` +
-    `<a href="${L}" dir="ltr" style="word-break:break-all;color:#0f6b4f">${L}</a><br><br>` +
+    `<a href="${L}" target="_blank" rel="noopener" dir="ltr" style="word-break:break-all;color:#0f6b4f">${L}</a><br><br>` +
     `הקישור אישי ומיועד לכתובת הזו בלבד. אם לא ציפית להזמנה, אפשר להתעלם מהמייל.</td></tr>` +
     `<tr><td style="border-top:1px solid #efeee8;padding:12px 20px;font-size:11.5px;color:#5f6861;text-align:right">נשלח ממערכת Plan_Travel. אין להשיב למייל זה.</td></tr>` +
     `</table></body></html>`;

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>פותחים את ההזמנה · Plan_Travel</title>
+<!-- Plan_Travel invite bridge · version 3.0.0-alpha.3.5 · F03
+     CHANGE 2026-10-10 F03-LAND-05: new file (no previous version). The invite email now links here instead of straight
+     into /app/. Why: /app/ is inside the installed app's scope, so on Android tapping the button in Gmail was handed to
+     the installed app, which only came to the front and did not open the invite (Or's phone, 2026-10-09). This page is
+     outside that scope, so it opens in a normal browser tab; it then moves the same tab to the app's landing page with
+     the token kept in the #hash (never sent to a server, never stored, never logged). -->
+<style>
+body{margin:0;background:#f7f6f1;color:#17211b;font-family:Arial,'Segoe UI',sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
+main{max-width:360px;padding:24px;text-align:center}
+h1{font-size:18px;margin:0 0 8px}
+p{font-size:14px;color:#5f6861;line-height:1.6;margin:0 0 16px}
+a{display:inline-block;min-height:44px;line-height:44px;padding:0 20px;border-radius:14px;background:#0f6b4f;color:#fff;text-decoration:none;font-weight:800}
+</style>
+</head>
+<body>
+<main>
+<h1>פותחים את ההזמנה…</h1>
+<p>אם הדף לא עובר תוך כמה שניות, לחצו על הכפתור.</p>
+<a id="go" href="../app/">פתיחת ההזמנה</a>
+</main>
+<script>
+(function(){
+  var h=String(location.hash||''),d=h;
+  try{d=decodeURIComponent(h)}catch(e){}
+  var m=/^#invite=([A-Za-z0-9_-]{43})$/.exec(d.trim());
+  var target='../app/'+(m?'?invite=1#invite='+m[1]:'');
+  try{history.replaceState(null,'',location.pathname)}catch(e){}
+  document.getElementById('go').href=target;
+  location.replace(target);
+})();
+</script>
+</body>
+</html>
