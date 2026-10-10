@@ -4,36 +4,88 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>פותחים את ההזמנה · Plan_Travel</title>
-<!-- Plan_Travel invite bridge · version 3.0.0-alpha.3.5 · F03
-     CHANGE 2026-10-10 F03-LAND-05: new file (no previous version). The invite email now links here instead of straight
-     into /app/. Why: /app/ is inside the installed app's scope, so on Android tapping the button in Gmail was handed to
-     the installed app, which only came to the front and did not open the invite (Or's phone, 2026-10-09). This page is
-     outside that scope, so it opens in a normal browser tab; it then moves the same tab to the app's landing page with
-     the token kept in the #hash (never sent to a server, never stored, never logged). -->
+<meta name="theme-color" content="#0f6b4f">
+<title>הזמנה · Plan_Travel</title>
+<!-- Plan_Travel invite page · version 3.0.0-alpha.3.6 · F03
+     CHANGE 2026-10-10 F03-LAND-05: new file (first version forwarded the tab to /app/).
+     CHANGE 2026-10-10 F03-LAND-06: this page now IS the invite landing; it no longer forwards into /app/.
+     What changed from the first version: on Or's phone the Gmail tap opened this page in a Gmail browser tab, and the
+     forward into /app/ (the installed app's scope) was handed to the already-open app, which showed nothing new.
+     The page stays outside the app's scope, checks the token itself with the same invite-manager `check` call as the
+     app's landing (F03-LAND-01) and shows the same three outcomes: valid, not valid (one generic text), no connection.
+     The token is read from the #hash, removed from the address bar at once, never stored and never logged. -->
 <style>
-body{margin:0;background:#f7f6f1;color:#17211b;font-family:Arial,'Segoe UI',sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
-main{max-width:360px;padding:24px;text-align:center}
-h1{font-size:18px;margin:0 0 8px}
-p{font-size:14px;color:#5f6861;line-height:1.6;margin:0 0 16px}
-a{display:inline-block;min-height:44px;line-height:44px;padding:0 20px;border-radius:14px;background:#0f6b4f;color:#fff;text-decoration:none;font-weight:800}
+*{box-sizing:border-box}
+body{margin:0;background:#f7f6f1;color:#17211b;font-family:Arial,'Segoe UI',system-ui,sans-serif}
+main{max-width:420px;margin:0 auto;padding:28px 18px;display:flex;flex-direction:column;gap:16px}
+.brand{text-align:center;font-size:18px;font-weight:900}
+.card{background:#fff;border:1px solid #e4e6df;border-radius:18px;padding:18px}
+.center{text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+.ring{width:64px;height:64px;border-radius:50%;background:#f1f0ea;display:flex;align-items:center;justify-content:center}
+.ring.ok{background:#eaf7ef}
+h1{margin:0;font-size:20px}
+p{margin:0;font-size:14px;line-height:1.6;color:#3a443d}
+.small{font-size:13px;color:#5f6861}
+.note{background:#fef3e2;color:#6b3a02;border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.5}
+.steps b{font-size:13.5px;display:block;padding-bottom:6px}
+.step{display:flex;gap:10px;align-items:center;font-size:13px;padding:8px 0;border-top:1px solid #efeee8}
+.num{width:24px;height:24px;border-radius:50%;background:#f1f0ea;color:#4b524c;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;border:0;border-radius:14px;font-size:15px;font-weight:800;font-family:inherit;background:#0f6b4f;color:#fff}
+.btn[disabled]{background:#e4e6df;color:#5f6861}
+.spin{width:28px;height:28px;border:3px solid #e4e6df;border-top-color:#0f6b4f;border-radius:50%;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>
 </head>
 <body>
-<main>
-<h1>פותחים את ההזמנה…</h1>
-<p>אם הדף לא עובר תוך כמה שניות, לחצו על הכפתור.</p>
-<a id="go" href="../app/">פתיחת ההזמנה</a>
-</main>
+<main id="m" aria-live="polite"><div class="brand">Plan_Travel</div><section class="card center" aria-busy="true"><div class="spin" aria-hidden="true"></div><h1 style="font-size:17px">בודקים את ההזמנה…</h1></section></main>
 <script>
 (function(){
+  'use strict';
+  var ENDPOINT='https://zwufpxnioqaweobnvffs.supabase.co/functions/v1/invite-manager';
+  var KEY='sb_publishable_Atuc7ybYTF2o7ujCJBjKjA_So_TbaV8';   /* publishable by design (RLS + the function are the protection) */
+  var TOKEN_RE=/^[A-Za-z0-9_-]{43}$/;
+  var BRAND='<div class="brand">Plan_Travel</div>';
+  var ICON_OK='<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#146c43" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  var ICON_BROKEN='<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#4b524c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/><path d="M3 3l18 18"/></svg>';
+  var ICON_WIFI='<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#4b524c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5 12a10 10 0 0 1 14 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><path d="M12 19h.01"/><path d="M3 3l18 18"/></svg>';
+  var LOADING=BRAND+'<section class="card center" aria-busy="true"><div class="spin" aria-hidden="true"></div><h1 style="font-size:17px">בודקים את ההזמנה…</h1></section>';
+  var INVALID=BRAND+'<section class="card center"><div class="ring">'+ICON_BROKEN+'</div><h1>הקישור כבר לא בתוקף</h1><p>ייתכן שפג תוקפו, שנשלח במקומו קישור חדש, או שההזמנה בוטלה.</p><p class="small">בקש/י ממי שהזמין אותך לשלוח את ההזמנה שוב, ופתח/י את הקישור מהמייל האחרון.</p></section>';
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function pad(n){return n<10?'0'+n:''+n}
+  function dmy(ts){var d=new Date(ts);return isNaN(d)?'':pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear()}
+  function net(msg){return BRAND+'<section class="card center"><div class="ring">'+ICON_WIFI+'</div><h1>'+esc(msg)+'</h1><button type="button" class="btn" id="retry">נסו שוב</button></section>'}
+  function valid(j){
+    var who=esc(j.inviter_name||'מנהל המערכת');
+    var grp=j.draft_name?'לנהל את הקבוצה <b>"'+esc(j.draft_name)+'"</b>':'לנהל קבוצה חדשה';
+    return BRAND+'<section class="card center"><div class="ring ok">'+ICON_OK+'</div><h1>ההזמנה שלך אומתה</h1><p>'+who+' הזמין אותך '+grp+'.</p>'+
+      '<div class="note">אשף הקמת הטיול עוד לא זמין. הקישור נשאר בתוקף עד <b>'+esc(dmy(j.expires_at))+'</b>, ותוכל/י לחזור אליו מהמייל.</div></section>'+
+      '<section class="card steps"><b>מה יקרה כשהאשף ייפתח</b>'+
+      '<div class="step"><span class="num">1</span><span>התחברות עם המייל הזה</span></div>'+
+      '<div class="step"><span class="num">2</span><span>שם הטיול, תאריכים ושפה</span></div>'+
+      '<div class="step"><span class="num">3</span><span>מדינות ומטבעות</span></div>'+
+      '<div class="step"><span class="num">4</span><span>קישור הצטרפות לשליחה בווטסאפ</span></div></section>'+
+      '<button class="btn" type="button" disabled>התחלת הקמה · בקרוב</button>';
+  }
+  var m=document.getElementById('m');
+  function render(html){m.innerHTML=html;var r=document.getElementById('retry');if(r)r.onclick=check}
   var h=String(location.hash||''),d=h;
   try{d=decodeURIComponent(h)}catch(e){}
-  var m=/^#invite=([A-Za-z0-9_-]{43})$/.exec(d.trim());
-  var target='../app/'+(m?'?invite=1#invite='+m[1]:'');
+  var mm=/^#invite=([A-Za-z0-9_-]{43})\s*$/.exec(d);
+  var token=mm?mm[1]:'';
   try{history.replaceState(null,'',location.pathname)}catch(e){}
-  document.getElementById('go').href=target;
-  location.replace(target);
+  function check(){
+    render(LOADING);
+    if(!TOKEN_RE.test(token)){render(INVALID);return}
+    if(navigator.onLine===false){render(net('אין חיבור. נסו שוב'));return}
+    var ctl=('AbortController' in window)?new AbortController():null;
+    var t=setTimeout(function(){if(ctl)ctl.abort()},10000);
+    fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','apikey':KEY},body:JSON.stringify({action:'check',token:token}),signal:ctl?ctl.signal:undefined,cache:'no-store'})
+      .then(function(r){clearTimeout(t);return r.json().then(function(j){return{ok:r.ok,j:j}},function(){return{ok:false,j:null}})})
+      .then(function(x){if(!x.ok||!x.j){render(net('לא הצלחנו לבדוק את ההזמנה. נסו שוב'));return}render(x.j.valid===true?valid(x.j):INVALID)})
+      ['catch'](function(){clearTimeout(t);render(net('אין חיבור. נסו שוב'))});
+  }
+  check();
 })();
 </script>
 </body>

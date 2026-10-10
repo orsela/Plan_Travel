@@ -1926,24 +1926,53 @@ def test_ac10_invite_via_launch_queue(env):
     assert wait_landing(page) == "land_ok", "landing not shown after a launchQueue launch"
 
 
-def test_ac10_invite_bridge_page(env):
-    """CHANGE 2026-10-10 F03-LAND-05: /invite/ (outside the installed app's scope) forwards the same tab to
-    /app/?invite=1#invite=<token>; a percent-encoded hash works; a bad hash goes to /app/ with no token."""
+def test_ac10_invite_page_outside_app(env):
+    """CHANGE 2026-10-10 F03-LAND-06: /invite/ (outside the installed app's scope) is the landing itself: it never
+    navigates into /app/, calls invite-manager `check` with the token, shows valid / invalid / no-connection, and
+    removes the token from the address bar. A percent-encoded hash works; a malformed token makes no request."""
     import http.server, threading, functools
     root = str(Path(__file__).resolve().parents[2])
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(http.server.SimpleHTTPRequestHandler, directory=root))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    T = "A" * 20 + "b-_" + "C" * 20
+    base = "http://127.0.0.1:%d" % srv.server_address[1]
+    good = "A" * 20 + "b-_" + "C" * 20
+    gone = "Z" * 43
     try:
-        if True:  # uses the suite's browser (a second sync Playwright instance cannot start inside the suite)
-            ctx = env.browser.new_context(); pg = ctx.new_page()
-            navs = []
-            pg.on("framenavigated", lambda f: navs.append(f.url) if f == pg.main_frame else None)
-            pg.route("**/app/**", lambda r: r.fulfill(body="<html><body>app</body></html>", content_type="text/html"))
-            base = "http://127.0.0.1:%d" % srv.server_address[1]
-            for h, want in [("#invite=" + T, "/app/?invite=1#invite=" + T), ("#invite%3D" + T, "/app/?invite=1#invite=" + T), ("#x", "/app/")]:
-                navs.clear(); pg.goto(base + "/invite/" + h); pg.wait_for_timeout(600)
-                assert navs and navs[-1] == base + want, "bridge %r went to %r" % (h, navs[-1:] )
-            ctx.close()
+        ctx = env.browser.new_context(viewport=VIEWPORT, locale="he-IL")
+        calls = []
+        def fn(route, request):
+            if request.method == "OPTIONS":
+                return route.fulfill(status=204, headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "POST"})
+            b = json.loads(request.post_data or "{}"); calls.append(b)
+            if b.get("token") == "N" * 43:
+                return route.abort()
+            body = {"valid": True, "draft_name": "יפן 2027", "inviter_name": "אור", "expires_at": "2026-10-16T12:00:00Z"} if b.get("token") == good else {"valid": False}
+            route.fulfill(status=200, body=json.dumps(body), headers={"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"})
+        ctx.route("**/functions/v1/invite-manager", fn)
+        ctx.route("**/app/**", lambda r: (_ for _ in ()).throw(AssertionError("navigated into /app/")))
+        pg = ctx.new_page()
+        cases = [("#invite=" + good, "ההזמנה שלך אומתה", 1), ("#invite%3D" + good, "ההזמנה שלך אומתה", 1),
+                 ("#invite=" + gone, "הקישור כבר לא בתוקף", 1), ("#invite=short", "הקישור כבר לא בתוקף", 0),
+                 ("#invite=" + "N" * 43, "אין חיבור. נסו שוב", 1)]
+        for h, want, ncalls in cases:
+            calls.clear()
+            pg.close(); pg = ctx.new_page()  # a fresh page per case (same path + new hash would not reload)
+            pg.goto(base + "/invite/" + h)
+            pg.wait_for_function("(w)=>document.body.innerText.includes(w)", arg=want, timeout=8000)
+            assert len(calls) == ncalls, "%r: %d check calls" % (h, len(calls))
+            if ncalls:
+                assert calls[0].get("action") == "check" and len(calls[0].get("token", "")) == 43
+            assert "invite" not in pg.url.split("/invite/")[1], "%r: token left in the address bar: %r" % (h, pg.url)
+            assert pg.url.startswith(base + "/invite/"), "left the invite page: %r" % pg.url
+        t = pg.inner_text("body")
+        assert "16/10/2026" not in t  # last case is the network page
+        pg.close(); pg = ctx.new_page()
+        pg.goto(base + "/invite/#invite=" + good)
+        pg.wait_for_function("()=>document.body.innerText.includes('יפן 2027')", timeout=8000)
+        t = pg.inner_text("body")
+        for w in ["אור", "יפן 2027", "16/10/2026", "התחלת הקמה · בקרוב"]:
+            assert w in t, "missing %r" % w
+        assert pg.evaluate("()=>document.documentElement.scrollWidth<=window.innerWidth"), "horizontal scroll at 390px"
+        ctx.close()
     finally:
         srv.shutdown()
